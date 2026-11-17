@@ -1,0 +1,32 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo-supervisor",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "packages/supervisor/scripts/demo-server.ts"],
+      "env": { "PERIMETER_PORT": "8795" },
+      "port": 8795
+    },
+    {
+      "name": "demo-supervisor-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "packages/supervisor/scripts/demo-server.ts"],
+      "env": { "PERIMETER_PORT": "8796", "DEMO_FLAVOR": "local" },
+      "port": 8796
+    },
+    {
+      "name": "demo-supervisor-2",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "packages/supervisor/scripts/demo-server.ts"],
+      "env": { "PERIMETER_PORT": "8797" },
+      "port": 8797
+    },
+    {
+      "name": "renderer-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:renderer", "-w", "@perimeter/desktop", "--", "--port", "5174"],
+      "port": 5174
+    }
+  ]
+}

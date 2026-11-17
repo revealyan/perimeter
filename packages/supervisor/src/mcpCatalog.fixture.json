@@ -1,0 +1,343 @@
+{
+ "servers": [
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.upstash/context7",
+    "description": "Up-to-date docs for AI agents",
+    "title": "Context7",
+    "repository": {
+     "url": "https://github.com/upstash/context7",
+     "source": "github"
+    },
+    "version": "4.7.0",
+    "websiteUrl": "https://context7.com",
+    "icons": [
+     {
+      "src": "https://raw.githubusercontent.com/upstash/context7/master/public/icon.png",
+      "mimeType": "image/png"
+     }
+    ],
+    "packages": [
+     {
+      "registryType": "npm",
+      "identifier": "@upstash/context7-mcp",
+      "version": "4.7.0",
+      "transport": {
+       "type": "stdio"
+      },
+      "environmentVariables": [
+       {
+        "description": "API key for authentication",
+        "isSecret": true,
+        "name": "CONTEXT7_API_KEY"
+       }
+      ]
+     },
+     {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/upstash/context7/releases/download/mcpb-v4.7.0/context7.mcpb",
+      "version": "4.7.0",
+      "fileSha256": "e5c824d5dc6fa452605fd4174441c20c1da496d4850988322b2e6919e54902e8",
+      "transport": {
+       "type": "stdio"
+      },
+      "environmentVariables": [
+       {
+        "description": "API key for authentication",
+        "isSecret": true,
+        "name": "CONTEXT7_API_KEY"
+       }
+      ]
+     }
+    ],
+    "remotes": [
+     {
+      "type": "streamable-http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": [
+       {
+        "description": "API key for authentication. Accepts \"Bearer <key>\" or the raw key.",
+        "isSecret": true,
+        "name": "Authorization"
+       }
+      ]
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2026-11-12T09:05:00.062345Z",
+     "publishedAt": "2026-11-12T09:05:00.062345Z",
+     "updatedAt": "2026-11-12T09:05:00.062345Z",
+     "isLatest": true
+    }
+   }
+  },
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+    "name": "com.notion/mcp",
+    "description": "Official Notion MCP server",
+    "repository": {},
+    "version": "1.0.1",
+    "remotes": [
+     {
+      "type": "streamable-http",
+      "url": "https://mcp.notion.com/mcp"
+     },
+     {
+      "type": "sse",
+      "url": "https://mcp.notion.com/sse"
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2025-09-11T22:25:50.737872Z",
+     "publishedAt": "2025-09-11T22:25:50.737872Z",
+     "updatedAt": "2025-09-11T22:25:50.737872Z",
+     "isLatest": true
+    }
+   }
+  },
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.github/github-mcp-server",
+    "description": "Connect AI assistants to GitHub - manage repos, issues, PRs, and workflows through natural language.",
+    "title": "GitHub",
+    "repository": {
+     "url": "https://github.com/github/github-mcp-server",
+     "source": "github"
+    },
+    "version": "2.1.0",
+    "packages": [
+     {
+      "registryType": "oci",
+      "identifier": "ghcr.io/github/github-mcp-server:2.1.0",
+      "transport": {
+       "type": "stdio"
+      },
+      "runtimeArguments": [
+       {
+        "description": "Publish the OAuth callback port to loopback so the in-container login callback is reachable",
+        "type": "named",
+        "name": "-p",
+        "value": "127.0.0.1:8085:8085"
+       },
+       {
+        "description": "Fixed OAuth callback port, matching the published port above",
+        "type": "named",
+        "name": "-e",
+        "value": "GITHUB_OAUTH_CALLBACK_PORT=8085"
+       },
+       {
+        "description": "Optional GitHub Personal Access Token. Omit to log in with OAuth on first use.",
+        "variables": {
+         "token": {
+          "format": "string",
+          "isSecret": true
+         }
+        },
+        "type": "named",
+        "name": "-e",
+        "value": "GITHUB_PERSONAL_ACCESS_TOKEN={token}"
+       }
+      ]
+     }
+    ],
+    "remotes": [
+     {
+      "type": "streamable-http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": [
+       {
+        "description": "Authorization header with authentication token (PAT or App token)",
+        "isSecret": true,
+        "name": "Authorization"
+       }
+      ]
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2026-11-03T11:06:05.48244Z",
+     "publishedAt": "2026-11-03T11:06:05.48244Z",
+     "updatedAt": "2026-11-03T11:06:05.48244Z",
+     "isLatest": true
+    }
+   }
+  },
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+    "name": "ai.smithery/renCosta2025-context7fork",
+    "description": "Get up-to-date, version-specific documentation and code examples from official sources directly in…",
+    "repository": {
+     "url": "https://github.com/renCosta2025/context7fork",
+     "source": "github"
+    },
+    "version": "1.0.13",
+    "remotes": [
+     {
+      "type": "streamable-http",
+      "url": "https://server.smithery.ai/@renCosta2025/context7fork/mcp",
+      "headers": [
+       {
+        "description": "Bearer token for Smithery authentication",
+        "value": "Bearer {smithery_api_key}",
+        "name": "Authorization"
+       }
+      ]
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2025-09-29T10:26:07.372529Z",
+     "publishedAt": "2025-09-29T10:26:07.372529Z",
+     "updatedAt": "2025-09-29T10:26:07.372529Z",
+     "isLatest": true
+    }
+   }
+  },
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+    "name": "com.figma.mcp/mcp",
+    "description": "The Figma MCP server brings Figma design context directly into your AI workflow.",
+    "title": "Figma MCP Server",
+    "repository": {
+     "url": "https://github.com/figma/mcp-server-guide",
+     "source": "github"
+    },
+    "version": "1.0.3",
+    "remotes": [
+     {
+      "type": "streamable-http",
+      "url": "https://mcp.figma.com/mcp"
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2025-10-16T17:40:56.949472Z",
+     "publishedAt": "2025-10-16T17:40:56.949472Z",
+     "updatedAt": "2025-10-16T17:40:56.949472Z",
+     "isLatest": true
+    }
+   }
+  },
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "com.mcparmory/notion",
+    "description": "Create, update, and manage pages, databases, and workspace users",
+    "repository": {
+     "url": "https://github.com/mcparmory/registry",
+     "source": "github"
+    },
+    "version": "1.0.2",
+    "packages": [
+     {
+      "registryType": "pypi",
+      "identifier": "mcparmory-notion",
+      "version": "1.0.2",
+      "runtimeHint": "uvx",
+      "transport": {
+       "type": "stdio"
+      }
+     },
+     {
+      "registryType": "oci",
+      "identifier": "ghcr.io/mcparmory/notion:1.0.2",
+      "runtimeHint": "docker",
+      "transport": {
+       "type": "stdio"
+      }
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2026-05-11T20:01:04.251555Z",
+     "publishedAt": "2026-05-11T20:01:04.251555Z",
+     "updatedAt": "2026-05-11T20:01:04.251555Z",
+     "isLatest": true
+    }
+   }
+  },
+  {
+   "server": {
+    "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+    "name": "io.github.awkoy/notion-mcp-server",
+    "description": "Token-auth Notion MCP: pages, databases, blocks, comments, files. Runs headless in CI and agents.",
+    "repository": {
+     "url": "https://github.com/awkoy/notion-mcp-server",
+     "source": "github"
+    },
+    "version": "3.4.0",
+    "packages": [
+     {
+      "registryType": "npm",
+      "identifier": "notion-mcp-server",
+      "version": "3.4.0",
+      "runtimeHint": "npx",
+      "transport": {
+       "type": "stdio"
+      },
+      "environmentVariables": [
+       {
+        "description": "Notion Personal Access Token (ntn_...) or Internal Integration Secret. Create at https://app.notion.com/developers/tokens",
+        "isRequired": true,
+        "isSecret": true,
+        "name": "NOTION_TOKEN"
+       },
+       {
+        "description": "Optional default parent page ID used by create_page / create_database when no parent is passed.",
+        "name": "NOTION_PAGE_ID"
+       }
+      ]
+     },
+     {
+      "registryType": "oci",
+      "identifier": "ghcr.io/awkoy/notion-mcp-server:3.4.0",
+      "runtimeHint": "docker",
+      "transport": {
+       "type": "stdio"
+      },
+      "environmentVariables": [
+       {
+        "description": "Notion Personal Access Token (ntn_...) or Internal Integration Secret. Create at https://app.notion.com/developers/tokens",
+        "isRequired": true,
+        "isSecret": true,
+        "name": "NOTION_TOKEN"
+       },
+       {
+        "description": "Optional default parent page ID used by create_page / create_database when no parent is passed.",
+        "name": "NOTION_PAGE_ID"
+       }
+      ]
+     }
+    ]
+   },
+   "_meta": {
+    "io.modelcontextprotocol.registry/official": {
+     "status": "active",
+     "statusChangedAt": "2026-11-09T21:17:36.860321Z",
+     "publishedAt": "2026-11-09T21:17:36.860321Z",
+     "updatedAt": "2026-11-09T21:17:36.860321Z",
+     "isLatest": true
+    }
+   }
+  }
+ ]
+}

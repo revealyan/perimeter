@@ -1,0 +1,32 @@
+{
+  "name": "@perimeter/desktop",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "main": "main/index.mjs",
+  "dependencies": {
+    "@perimeter/protocol": "*",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "highlight.js": "^11.12.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ssh2": "^1.15.6",
+    "@vitejs/plugin-react": "^6.2.1",
+    "concurrently": "^10.0.7",
+    "electron": "^45.2.3",
+    "vite": "^8.3.6",
+    "wait-on": "^9.5.1"
+  },
+  "scripts": {
+    "dev": "concurrently -n vite,electron -c cyan,green \"vite dev --config renderer/vite.config.ts\" \"wait-on tcp:5173 && electron .\"",
+    "dev:renderer": "vite dev --config renderer/vite.config.ts",
+    "dev:electron": "electron .",
+    "build": "vite build --config renderer/vite.config.ts"
+  }
+}

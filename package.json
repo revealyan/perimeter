@@ -1,0 +1,27 @@
+{
+  "name": "perimeter",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/desktop/renderer/tsconfig.json --noEmit",
+    "smoke": "tsx packages/supervisor/scripts/smoke.ts",
+    "supervisor": "tsx packages/supervisor/src/main.ts",
+    "desktop": "npm run dev -w @perimeter/desktop",
+    "killtest": "tsx packages/supervisor/scripts/killtest.ts",
+    "bench": "tsx packages/supervisor/scripts/bench.ts",
+    "build:server": "node packages/supervisor/scripts/build-server.mjs",
+    "server:install": "node scripts/server-install.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}

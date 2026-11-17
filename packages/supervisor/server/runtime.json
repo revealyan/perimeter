@@ -1,0 +1,11 @@
+{
+  "_": "Закреплённый Node для сервера (АДР 004): сервер качает его сам с nodejs.org и сверяет sha256 отсюда (SHASUMS256.txt релиза).",
+  "node": {
+    "version": "24.22.3",
+    "sha256": {
+      "linux-x64": "061ec3e3062115705b56b51fa9cc330ab50d34b6969387d4e4b1a50c6809acc2",
+      "linux-arm64": "261af2af250dfd7e9f25cf151d1b2713a0adf8f10a9ad116c4947f68627affe8"
+    }
+  },
+  "packages": ["node-pty", "@anthropic-ai/claude-agent-sdk-linux-x64", "@anthropic-ai/claude-agent-sdk-linux-arm64"]
+}

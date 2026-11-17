@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-renderer/
+*.tsbuildinfo
+.env
+.local-state.json
+.serena/
+*.log
+docs/support/*.local.md

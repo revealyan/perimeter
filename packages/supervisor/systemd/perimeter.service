@@ -1,0 +1,27 @@
+# perimeter-supervisor: сессии claude, живущие без терминала (инвариант 2: Restart=always)
+# Установка на VPS:
+#   sudo cp packages/supervisor/systemd/perimeter.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now perimeter
+[Unit]
+Description=perimeter supervisor (Claude Code sessions)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# пользователь, под которым ставился claude и лежит ~/.claude с авторизацией
+User=%i
+WorkingDirectory=/opt/perimeter
+Environment=PERIMETER_PORT=8790
+Environment=PERIMETER_HOST=127.0.0.1
+Environment=PERIMETER_MODEL=glm-5.3[1m]
+Environment=PERIMETER_PERMISSION_MODE=acceptEdits
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npx tsx packages/supervisor/src/main.ts
+Restart=always
+RestartSec=3
+# kill -9 всего дерева: сессии восстановятся по транскрипту (--resume)
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target
