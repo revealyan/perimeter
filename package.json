@@ -1,6 +1,10 @@
 {
   "name": "perimeter",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/revealyan/perimeter.git"
+  },
   "type": "module",
   "workspaces": [
     "packages/*",

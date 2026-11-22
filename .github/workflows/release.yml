@@ -23,9 +23,9 @@ jobs:
       - run: npm run typecheck
       - run: npm run dist -w @perimeter/desktop
         env:
-          # публикацию делает electron-builder: релиз с черновиком, заметки руками после
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EP_DRAFT: 'true'
+          # публикацию делает отдельный шаг (softprops) — сам electron-builder на теге лезет публиковать сам и падает
+          EP_PUBLISH: never
       - name: контрольные суммы
         shell: bash
         run: |
