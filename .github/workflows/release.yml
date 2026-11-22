@@ -1,0 +1,40 @@
+# Релиз: тег v* → тесты → сборка → установщик и portable в GitHub Release.
+# Паблик-репо: GITHUB_TOKEN с permissions contents:write хватает для публикации.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run dist -w @perimeter/desktop
+        env:
+          # публикацию делает electron-builder: релиз с черновиком, заметки руками после
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EP_DRAFT: 'true'
+      - name: контрольные суммы
+        shell: bash
+        run: |
+          cd apps/dist-desktop
+          sha256sum perimeter-setup-*.exe perimeter-portable-*.exe > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            apps/dist-desktop/perimeter-setup-*.exe
+            apps/dist-desktop/perimeter-portable-*.exe
+            apps/dist-desktop/SHA256SUMS.txt
