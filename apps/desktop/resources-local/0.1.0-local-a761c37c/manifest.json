@@ -1,8 +1,0 @@
-{
-  "version": "0.1.0-local-a761c37c",
-  "target": "local-win",
-  "packages": {
-    "node-pty": "1.1.0",
-    "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.319"
-  }
-}
