@@ -1,0 +1,40 @@
+# Упаковка приложения (electron-builder): NSIS-установщик + portable-exe для Windows.
+# app-supervisor (бандл локального supervisor'а) готовит scripts/prepare-pack.mjs в resources/.
+appId: app.perimeter.desktop
+productName: Perimeter
+copyright: Perimeter
+
+directories:
+  output: ../dist-desktop
+  buildResources: build
+
+files:
+  - main/**
+  - preload.mjs
+  - dist-renderer/**
+  - package.json
+  - "!**/*.map"
+
+# нативные модули (node-pty в зависимостях протокола supervisor'а не едет — локальная среда ставит свой;
+# ssh2 с нативными ускорителями — optional и без них работает)
+asar: true
+
+extraResources:
+  - from: resources
+    to: app-supervisor
+    filter:
+      - "**/*"
+
+win:
+  target:
+    - nsis
+    - portable
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: perimeter-setup-${version}.${ext}
+
+portable:
+  artifactName: perimeter-portable-${version}.${ext}

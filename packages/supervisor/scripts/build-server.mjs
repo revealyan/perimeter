@@ -17,6 +17,16 @@ const repoRoot = resolve(pkgDir, '..', '..');
 /** метка версии в бандле до подсчёта хэша (хэш считается по бандлу с меткой) */
 const PLACEHOLDER = '__PERIMETER_BUILD_ID_PLACEHOLDER__';
 
+/** rename папки на Windows ловит EPERM от антивируса/индексатора на свежих файлах — немного ждём и повторяем. */
+function renameRetry(from, to) {
+  for (let i = 0; ; i++) {
+    try { renameSync(from, to); return; } catch (e) {
+      if (i >= 5 || e.code !== 'EPERM') throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    }
+  }
+}
+
 /** Файлы сборки — их кладёт на сервер установщик приложения. */
 export const SERVER_FILES = ['supervisor.mjs', 'package.json', 'package-lock.json', 'manifest.json', 'server.env', 'perimeter-server.sh', 'start.sh'];
 
@@ -119,7 +129,43 @@ export async function buildServer({ outRoot = defaultOutRoot(), tag = process.en
   mkdirSync(tmp, { recursive: true });
   for (const [name, text] of Object.entries(files)) writeFileSync(join(tmp, name), text, 'utf8');
   // сборку той же версии мог только что положить параллельный запуск — тогда она уже есть
-  try { renameSync(tmp, dir); } catch (e) {
+  try { renameRetry(tmp, dir); } catch (e) {
+    rmSync(tmp, { recursive: true, force: true });
+    if (!existsSync(join(dir, 'manifest.json'))) throw e;
+  }
+  return { version, dir };
+}
+
+/**
+ * Локальный бандл для упаковки в приложение (Windows): supervisor.mjs + lock с win-платформой
+ * (node-pty, claude-agent-sdk-win32-x64). Бех .sh и node-runtime: запуск — под Node самого Electron,
+ * пакеты ставит приложение в профиль пользователя при первом включении локальной среды.
+ */
+export async function buildLocal({ outRoot = defaultOutRoot() } = {}) {
+  const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
+  const rootLock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
+  const names = ['node-pty', '@anthropic-ai/claude-agent-sdk-win32-x64'];
+  const deps = serverDeps(rootLock, names);
+  const code = await bundleSupervisor();
+  const h = createHash('sha256');
+  h.update(code).update('\0').update(JSON.stringify(deps)).update('\0').update('local-win');
+  const version = `${pkg.version}-local-${h.digest('hex').slice(0, 8)}`;
+  const dir = join(outRoot, version);
+  if (existsSync(join(dir, 'manifest.json'))) return { version, dir };
+  const files = {
+    'supervisor.mjs': code.split(PLACEHOLDER).join(version),
+    'package.json': `${JSON.stringify({ name: 'perimeter-local', version, private: true, type: 'module', optionalDependencies: deps.optionalDependencies }, null, 2)}\n`,
+    'package-lock.json': `${JSON.stringify({
+      name: 'perimeter-local', version, lockfileVersion: 3, requires: true,
+      packages: { '': { name: 'perimeter-local', version, optionalDependencies: deps.optionalDependencies }, ...deps.packages },
+    }, null, 2)}\n`,
+    'manifest.json': `${JSON.stringify({ version, target: 'local-win', packages: deps.optionalDependencies }, null, 2)}\n`,
+  };
+  const tmp = `${dir}.tmp-${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  mkdirSync(tmp, { recursive: true });
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(tmp, name), text, 'utf8');
+  try { renameRetry(tmp, dir); } catch (e) {
     rmSync(tmp, { recursive: true, force: true });
     if (!existsSync(join(dir, 'manifest.json'))) throw e;
   }
@@ -127,6 +173,9 @@ export async function buildServer({ outRoot = defaultOutRoot(), tag = process.en
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const { version, dir } = await buildServer(process.argv[2] ? { outRoot: resolve(process.argv[2]) } : {});
+  const local = process.argv.includes('--local');
+  const outArg = process.argv.slice(2).find((a) => !a.startsWith('-'));
+  const outRoot = outArg !== undefined ? resolve(outArg) : undefined;
+  const { version, dir } = await (local ? buildLocal : buildServer)(outRoot ? { outRoot } : {});
   console.log(`${version} ${dir}`);
 }

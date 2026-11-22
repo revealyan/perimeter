@@ -7,3 +7,5 @@ dist-renderer/
 .serena/
 *.log
 docs/support/*.local.md
+apps/desktop/resources/
+dist-desktop/

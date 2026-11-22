@@ -8,6 +8,10 @@ import { dirname, join } from 'node:path';
 import { Tunnel, testConnection } from './tunnel.mjs';
 import { ConnectionManager, migrateClientDir, validateInput } from './connections.mjs';
 import { ServerInstaller } from './server-install.mjs';
+import { ensureLocalServer, localSupervisorEnv } from './local-server.mjs';
+
+// имя приложения (профиль %APPDATA%/Perimeter вместо scoped-имени пакета «@perimeter/desktop»)
+app.setName('Perimeter');
 
 const devUrl = process.env.PERIMETER_DEV_URL ?? 'http://localhost:5173';
 
@@ -32,21 +36,18 @@ function setLocalStatus(s) {
   if (win && !win.isDestroyed()) win.webContents.send('perimeter:local-sup-status', s);
 }
 
-function startLocalSupervisor() {
-  if (localSup) return localSupStatus;
-  const repoRoot = join(import.meta.dirname, '..', '..', '..');
+/** Поднять процесс supervisor'а (аргументы и env уже собраны под режим). */
+function spawnSupervisor(args, cwd, extraEnv) {
   // process.execPath в Electron — сам electron.exe: без ELECTRON_RUN_AS_NODE он поднимет второе окно приложения, а не Node
-  localSup = spawn(process.execPath, ['--import', 'tsx', 'packages/supervisor/src/main.ts'], {
-    cwd: repoRoot,
+  localSup = spawn(process.execPath, args, {
+    cwd,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       PERIMETER_PORT: '8791',
       PERIMETER_HOST: '127.0.0.1',
-      PERIMETER_STATE: join(repoRoot, '.local-state.json'),
       PERIMETER_POOL_SIZE: '0',
-      // хранилище проектов этого компьютера: по умолчанию — папка рядом с репозиторием (у владельца это C:/devs/revealyan)
-      PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? dirname(repoRoot),
+      ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -64,6 +65,36 @@ function startLocalSupervisor() {
     setLocalStatus(code === 0 || code === null ? 'остановлен' : `упал (код ${code})${localSupLastErr ? `: ${localSupLastErr}` : ''}`);
   });
   setLocalStatus('запускается…');
+}
+
+/** Установка packaged-локального supervisor (докачка движка) — один промис на все вызовы. */
+let localSupInstall = null;
+
+async function startLocalSupervisor() {
+  if (localSup) return localSupStatus;
+  if (app.isPackaged) {
+    // packaged: бандл в resources, нативные пакеты — в профиль пользователя (один раз на версию)
+    if (!localSupInstall) {
+      localSupInstall = ensureLocalServer({
+        bundleDir: join(process.resourcesPath, 'app-supervisor'),
+        installRoot: join(app.getPath('userData'), 'local-server'),
+        onStatus: setLocalStatus,
+      }).catch((e) => { localSupInstall = null; throw e; });
+    }
+    let inst;
+    try { inst = await localSupInstall; }
+    catch (e) { setLocalStatus(`движок не установился: ${String(e.message).slice(0, 140)}`); return localSupStatus; }
+    setLocalStatus('запускается…');
+    spawnSupervisor([join(inst.dir, 'supervisor.mjs')], inst.dir, localSupervisorEnv({ app, installDir: inst.dir }));
+    return localSupStatus;
+  }
+  // dev: из исходников репозитория (tsx), состояние рядом с репо
+  const repoRoot = join(import.meta.dirname, '..', '..', '..');
+  spawnSupervisor(['--import', 'tsx', 'packages/supervisor/src/main.ts'], repoRoot, {
+    PERIMETER_STATE: join(repoRoot, '.local-state.json'),
+    // хранилище проектов этого компьютера: по умолчанию — папка рядом с репозиторием (у владельца это C:/devs/revealyan)
+    PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? dirname(repoRoot),
+  });
   return localSupStatus;
 }
 
@@ -122,7 +153,9 @@ function createWindow() {
     if (/^https?:/i.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.loadURL(devUrl);
+  // packaged: собранный рендерер из файлов; dev: vite-сервер
+  if (app.isPackaged) win.loadFile(join(import.meta.dirname, '..', 'dist-renderer', 'index.html'));
+  else win.loadURL(devUrl);
   win.webContents.on('did-finish-load', () => {
     send('perimeter:tunnel-status', tunnelStatus);
     setLocalStatus(localSupStatus);

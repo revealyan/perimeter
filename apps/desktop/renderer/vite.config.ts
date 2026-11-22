@@ -10,6 +10,8 @@ export default defineConfig({
       '@perimeter/protocol': fileURLToPath(new URL('../../../packages/protocol/src/index.ts', import.meta.url)),
     },
   },
+  // './' — собранный index.html открывается из файла (packaged-приложение), не с сервера
+  base: './',
   server: { port: 5173, strictPort: true },
   build: { outDir: '../dist-renderer', emptyOutDir: true },
 });
