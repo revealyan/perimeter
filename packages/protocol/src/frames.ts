@@ -51,6 +51,8 @@ const sessionSummary = z.object({
   archived: z.boolean().optional(), // сессия в архиве (внизу сайдбара)
   effort: EffortLevelSchema.optional(), // усилие сессии; нет — по умолчанию модели/аккаунта
   ultracode: z.boolean().optional(), // ultracode включён для сессии
+  /** окно автокомпакта сессии (autoCompactWindow, токены); нет — модели/аккаунта */
+  compactWindow: z.number().int().optional(),
   /** сессия-воркер: id родительской сессии (сквозной сабагент по аккаунтам); нет — обычная сессия */
   parentSessionId: z.string().uuid().optional(),
   /** чем порождена (имя инструмента делегирования); справочно для UI */
@@ -141,6 +143,8 @@ export const profileInfo = z.object({
   tasks: z.boolean().optional(),
   /** моделям без сведений об усилии (шлюз не сообщает) — стандартные уровни; по умолчанию: шлюзы — да */
   effortFallback: z.boolean().optional(),
+  /** окно автокомпакта по умолчанию у сессий аккаунта (токены); нет — как у модели */
+  compactWindow: z.number().int().optional(),
   /** ключ API задан: последние символы («…UDPw»); сам ключ клиенту не уходит никогда */
   keyHint: z.string().max(12).optional(),
   /** ключ можно задать из UI (аккаунт через шлюз или с ключом в env); у подписки Claude — нет */
@@ -238,6 +242,8 @@ export const cmdSessionNew = cmdBase.extend({
   /** усилие; нет — defaultEffort аккаунта, дальше — по умолчанию модели */
   effort: EffortLevelSchema.optional(),
   ultracode: z.boolean().optional(),
+  /** окно автокомпакта (токены): Claude Code сжимает историю, когда контекст подходит к нему */
+  compactWindow: z.number().int().min(20_000).max(10_000_000).optional(),
   /** создать дочернюю сессию-воркера (UI не шлёт; нужно тестам и демо-стенду) */
   parentSessionId: z.string().uuid().optional(),
   agentOf: z.string().optional(),
@@ -254,6 +260,8 @@ export const cmdSessionSettings = cmdBase.extend({
   effort: EffortLevelSchema.nullable().optional(),
   ultracode: z.boolean().optional(),
   profile: z.string().optional(),
+  /** окно автокомпакта; null — как у модели/аккаунта. Claude Code берёт его при старте процесса — между ходами */
+  compactWindow: z.number().int().min(20_000).max(10_000_000).nullable().optional(),
 });
 
 /**
@@ -296,6 +304,8 @@ export const cmdProfileUpdate = cmdBase.extend({
   tasks: z.boolean().optional(),
   /** стандартные уровни усилия моделям без сведений */
   effortFallback: z.boolean().optional(),
+  /** окно автокомпакта по умолчанию у сессий аккаунта; null — убрать */
+  compactWindow: z.number().int().min(20_000).max(10_000_000).nullable().optional(),
   /** новый ключ API аккаунта — только запись (в env профиля); обратно не отдаётся */
   apiKey: z.string().min(8).max(512).regex(/^\S+$/, 'ключ без пробелов').optional(),
 });

@@ -6,6 +6,7 @@ import type { SessionView, SupervisorClient } from '../supervisor';
 import { envLabel } from '../supervisor';
 import { ctxView, fmtBytes, fmtCost, fmtDuration, fmtTokens } from '../lib/toolFormat';
 import { changesTotal, fileChanges, sessionCost } from '../lib/feedModel';
+import { tokensLabel } from '../lib/outputLimit';
 import type { PanelTab } from '../lib/panelLayout';
 import { modeLabel } from './SessionHeader';
 import { Icon } from './Icon';
@@ -71,6 +72,11 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
           <button className="sb-item" disabled={!live || session.state === 'creating'} data-tip="/compact — агент сожмёт историю в выжимку и освободит контекст (идёт обычным ходом)" onClick={() => client.sendText(session.id, '/compact')}>
             <Icon name="minimize" size={12} /> <span className="dim">сжать</span>
           </button>
+          {session.compactWindow !== undefined && (
+            <button className="sb-item" onClick={() => onTab('context')} data-tip="Свой автокомпакт сессии: Claude Code сжимает историю у этого окна. Поменять — вкладка «Контекст»">
+              <span className="dim">авто</span> {tokensLabel(session.compactWindow)}
+            </button>
+          )}
           {ch && ch.files > 0 && (
             <>
               <span className="sb-sep">·</span>

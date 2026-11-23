@@ -29,6 +29,8 @@ export interface SessionInfo {
   effort?: EffortLevel;
   /** ultracode включён (нет — выключен) */
   ultracode?: boolean;
+  /** окно автокомпакта сессии; нет — модели/аккаунта */
+  compactWindow?: number;
   /** сессия-воркер (сквозной сабагент): id родительской сессии; нет — обычная сессия */
   parentSessionId?: string;
   /** чем порождена воркер (имя инструмента делегирования); справочно */
@@ -47,6 +49,7 @@ export interface SpawnInfo {
   profile?: string;
   effort?: EffortLevel;
   ultracode?: boolean;
+  compactWindow?: number;
 }
 
 /** Запись реестра для персистентности (state-store). */
@@ -113,6 +116,7 @@ function spawnInfo(i: SpawnInfo): SpawnInfo {
     ...(i.profile !== undefined ? { profile: i.profile } : {}),
     ...(i.effort !== undefined ? { effort: i.effort } : {}),
     ...(i.ultracode === true ? { ultracode: true } : {}),
+    ...(i.compactWindow !== undefined ? { compactWindow: i.compactWindow } : {}),
   };
 }
 
@@ -324,6 +328,16 @@ export class SessionManager {
     const ok = await s.engine.setModel(engineModel);
     if (ok) { s.info.model = model; this.persistHook?.(); }
     return ok;
+  }
+
+  /**
+   * Окно автокомпакта: Claude Code читает его только при старте процесса (applyFlagSettings не меняет — проверено
+   * 23.11). Запоминаем; живой процесс между ходами гасит вызывающий (wss), следующее сообщение поднимет с новым.
+   */
+  setCompactWindow(sessionId: string, window: number | null): void {
+    const s = this.require(sessionId);
+    if (window === null) delete s.info.compactWindow; else s.info.compactWindow = window;
+    this.persistHook?.();
   }
 
   async setPermissionMode(sessionId: string, mode: string): Promise<boolean> {

@@ -11,6 +11,8 @@ import { DiffView } from './DiffView';
 import { Icon, type IconName } from './Icon';
 import { MultiLine } from './ui';
 import { modeLabel } from './SessionHeader';
+import { compactOptions } from '../lib/compactWindow';
+import { tokensLabel } from '../lib/outputLimit';
 
 function splitDir(p: string): { dir: string; base: string } {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -183,6 +185,22 @@ export function ContextTab({ session, client, ctx }: { session?: SessionView | u
             )}
           </>
         ) : <div className="panel-note">{session ? 'Появится, когда процесс сессии запущен.' : 'Сессия не выбрана.'}</div>}
+        {session && (
+          <div className="ctx-compact">
+            <label>
+              <span>Автокомпакт</span>
+              <select
+                aria-label="Окно автокомпакта"
+                value={session.compactWindow ?? ''}
+                disabled={client.status !== 'live' || session.state === 'working' || session.state === 'waiting_permission' || session.state === 'waiting_input'}
+                onChange={(e) => void client.setSessionSettings(session.id, { compactWindow: e.target.value === '' ? null : Number(e.target.value) })}
+              >
+                {compactOptions(session.compactWindow, `как у аккаунта${profile?.compactWindow ? ` (${tokensLabel(profile.compactWindow)})` : ''}`).map((o) => <option key={o.label} value={o.value ?? ''}>{o.label}</option>)}
+              </select>
+            </label>
+            <div className="dim panel-note">Когда контекст подходит к этому окну, Claude Code сжимает историю. Меняется между ходами — процесс перезапустится с той же историей.</div>
+          </div>
+        )}
       </section>
       {session && (
         <section className="psec">

@@ -62,6 +62,8 @@ export interface Profile {
   tasks?: boolean;
   /** стандартные уровни усилия моделям без сведений; по умолчанию: шлюзы — да */
   effortFallback?: boolean;
+  /** окно автокомпакта по умолчанию у сессий аккаунта (токены) */
+  compactWindow?: number;
 }
 
 export interface ProfilesFile {
@@ -91,6 +93,8 @@ export interface ProfilePatch {
   maxOutputHigh?: number | null;
   tasks?: boolean;
   effortFallback?: boolean;
+  /** окно автокомпакта по умолчанию; null — убрать */
+  compactWindow?: number | null;
   /** новый ключ API (только запись в env профиля; в логи и клиенту не уходит) */
   apiKey?: string;
 }
@@ -287,6 +291,17 @@ export class ProfileRegistry {
     return m !== undefined ? { model: m } : {};
   }
 
+  /**
+   * Запуск сессии с окном автокомпакта: окно сессии важнее окна своей модели (`glm-5.4@400k`), то — умолчания
+   * аккаунта. Окно 1M и больше не задаём (как у своих моделей: его даёт [1m]).
+   */
+  launchSession(name: string | undefined, model: string | undefined, sessionWindow?: number): Launch {
+    const l = this.launch(name, model);
+    const w = sessionWindow ?? l.window ?? this.get(this.external(name))?.compactWindow;
+    const { window: _w, ...rest } = l;
+    return { ...rest, ...(w !== undefined && w < 1_000_000 ? { window: w } : {}) };
+  }
+
   /** Модели аккаунта; undefined — список ещё не получен (auto без кэша). */
   models(name: string | undefined): ModelInfoFrame[] | undefined {
     const ext = this.external(name);
@@ -339,6 +354,7 @@ export class ProfileRegistry {
       ...(p.maxOutputHigh !== undefined ? { maxOutputHigh: p.maxOutputHigh } : {}),
       tasks: this.tasksAllowed(name),
       effortFallback: this.effortFallback(name),
+      ...(p.compactWindow !== undefined ? { compactWindow: p.compactWindow } : {}),
       ...(keyHint(p) !== undefined ? { keyHint: keyHint(p)! } : {}),
       keyEditable: keyEditable(p),
       ...(gatewayHost(p) ? { gatewayHost: gatewayHost(p)! } : {}),
@@ -460,7 +476,7 @@ export class ProfileRegistry {
       if (patch.ultracode !== undefined) r['ultracode'] = patch.ultracode;
       if (patch.delegate !== undefined) r['delegate'] = patch.delegate;
       if (patch.nativeAgents !== undefined) r['nativeAgents'] = patch.nativeAgents;
-      for (const k of ['maxOutput', 'maxOutputHigh'] as const) {
+      for (const k of ['maxOutput', 'maxOutputHigh', 'compactWindow'] as const) {
         if (patch[k] === null) delete r[k];
         else if (patch[k] !== undefined) r[k] = patch[k];
       }
@@ -666,6 +682,7 @@ function normalizeProfile(raw: unknown): Profile | null {
     ...(tokens(r['maxOutputHigh']) !== undefined ? { maxOutputHigh: tokens(r['maxOutputHigh'])! } : {}),
     ...(typeof r['tasks'] === 'boolean' ? { tasks: r['tasks'] } : {}),
     ...(typeof r['effortFallback'] === 'boolean' ? { effortFallback: r['effortFallback'] } : {}),
+    ...(typeof r['compactWindow'] === 'number' && Number.isInteger(r['compactWindow']) && r['compactWindow'] >= 20_000 ? { compactWindow: r['compactWindow'] } : {}),
   };
 }
 

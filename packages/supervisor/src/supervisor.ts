@@ -75,7 +75,8 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
     const baseModel = sess.profile === undefined ? profiles.get(profiles.baseName())?.model ?? base.model : undefined;
     const picked = applyProfile(profiles.get(sess.profile), { ...(baseModel !== undefined || sess.model !== undefined ? { model: sess.model ?? baseModel } : {}) });
     // включён 1M у модели аккаунта — Claude Code получает `<id>[1m]`; своя модель — базу и окно контекста
-    const launch = profiles.launch(sess.profile, picked.model);
+    // окно автокомпакта: сессии → своей модели → умолчание аккаунта (Claude Code берёт его при старте процесса)
+    const launch = profiles.launchSession(sess.profile, picked.model, sess.compactWindow);
     const withProfile = {
       ...picked,
       ...(launch.model !== undefined ? { model: launch.model } : {}),

@@ -93,6 +93,16 @@ try {
   const disp = main.map((r) => (r.thinking as { display?: string } | undefined)?.display);
   check('размышления просим текстом (summarized, не updates)', disp.every((d) => d === 'summarized') && !main.some((r) => /thinking-display-updates/.test(r.betas)), JSON.stringify(disp));
 
+  // автокомпакт на сессию: окно у самого Claude Code (getContextUsage) — на старте и после смены между ходами
+  const c2 = await cmd({ type: 'cmd:session.new', profile: 'gw', model: 'glm-5.4[1m]', compactWindow: 400_000, cwd: proj });
+  const sid2 = String(((c2['data'] as Record<string, unknown>)['sessionId'] ?? (c2['data'] as { session?: { id?: string } }).session?.id));
+  await turn(sid2, 'окно');
+  const ctx1 = ((await cmd({ type: 'cmd:session.context', sessionId: sid2 }))['data'] as Record<string, unknown>)['maxTokens'];
+  await cmd({ type: 'cmd:session.settings', sessionId: sid2, compactWindow: 600_000 });
+  await turn(sid2, 'окно 2');
+  const ctx2 = ((await cmd({ type: 'cmd:session.context', sessionId: sid2 }))['data'] as Record<string, unknown>)['maxTokens'];
+  check('автокомпакт на сессию: 400K на старте, 600K после смены между ходами', ctx1 === 400_000 && ctx2 === 600_000, `окно ${String(ctx1)} → ${String(ctx2)}`);
+
   // размышления: что записал Claude Code в транскрипт, и что отдаёт supervisor
   const projects = join(home, '.claude', 'projects');
   const files = readdirSync(projects, { recursive: true }).map(String).filter((f) => f.endsWith('.jsonl'));

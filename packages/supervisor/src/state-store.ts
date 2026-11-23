@@ -18,6 +18,8 @@ export interface PersistedSession {
   /** усилие сессии (переживает рестарт supervisor'а и respawn) */
   effort?: EffortLevel;
   ultracode?: boolean;
+  /** окно автокомпакта сессии */
+  compactWindow?: number;
   /** воркер делегирования: родитель и инструмент */
   parentSessionId?: string;
   agentOf?: string;
@@ -55,6 +57,7 @@ function normalizeSession(raw: unknown): PersistedSession | null {
   const effort = EffortLevelSchema.safeParse(r['effort']);
   if (effort.success) out.effort = effort.data;
   if (r['ultracode'] === true) out.ultracode = true;
+  if (typeof r['compactWindow'] === 'number' && Number.isInteger(r['compactWindow']) && r['compactWindow'] >= 20_000) out.compactWindow = r['compactWindow'];
   return out;
 }
 

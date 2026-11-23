@@ -408,6 +408,7 @@ export class WssServer {
           ...(project !== undefined ? { projectId: project.id } : {}),
           ...(effort !== undefined ? { effort } : {}),
           ...(f.ultracode === true ? { ultracode: true } : {}),
+          ...(f.compactWindow !== undefined ? { compactWindow: f.compactWindow } : {}),
         };
         if (this.ensureDirs && !isDir(sess.cwd!)) {
           this.sendReply(ws, this.err(f.id, 'CWD_NOT_FOUND', `папки ${sess.cwd} нет на сервере — сессию не запустить (создайте папку или поменяйте путь проекта)`));
@@ -419,7 +420,7 @@ export class WssServer {
         // Окно контекста своей модели Claude Code берёт только при старте процесса (claim его не применяет) —
         // такая сессия стартует холодной. Так же холодно стартует сессия с делегированием:
         // in-process MCP-сервер фиксируется на prewarm, claim его не переустанавливает.
-        const launch = this.profiles.launch(profile, model ?? this.profiles.get(this.profiles.external(profile))?.model);
+        const launch = this.profiles.launchSession(profile, model ?? this.profiles.get(this.profiles.external(profile))?.model, f.compactWindow);
         const delegateOn = f.parentSessionId === undefined && this.profiles.delegateAllowed(profile);
         const warm = launch.window !== undefined || delegateOn ? null : this.pool?.take(
           {
@@ -504,8 +505,8 @@ export class WssServer {
           } else {
             if (f.model !== undefined) {
               const def = this.profiles.get(this.profiles.external(cur.profile))?.model;
-              const was = this.profiles.launch(cur.profile, cur.model ?? def);
-              const next = this.profiles.launch(cur.profile, f.model);
+              const was = this.profiles.launchSession(cur.profile, cur.model ?? def, cur.compactWindow);
+              const next = this.profiles.launchSession(cur.profile, f.model, f.compactWindow === null ? undefined : f.compactWindow ?? cur.compactWindow);
               if (was.window !== next.window && cur.state !== 'dead') {
                 // окно контекста Claude Code берёт только при старте процесса: между ходами процесс гасим,
                 // следующее сообщение поднимет его через resume уже с новым окном (история та же)
@@ -518,6 +519,22 @@ export class WssServer {
               const ok = await this.manager.setModel(sid, f.model, next.model ?? f.model);
               if (!ok) throw new Error('движок не поддерживает смену модели');
             }
+            // окно автокомпакта сессии (смена модели выше его уже учла): Claude Code берёт его только при старте
+            // процесса — между ходами гасим, следующее сообщение поднимет с новым окном (история та же)
+            if (f.compactWindow !== undefined && f.model === undefined) {
+              const def = this.profiles.get(this.profiles.external(cur.profile))?.model;
+              const m = cur.model ?? def;
+              const was = this.profiles.launchSession(cur.profile, m, cur.compactWindow);
+              const next = this.profiles.launchSession(cur.profile, m, f.compactWindow ?? undefined);
+              if (was.window !== next.window && cur.state !== 'dead') {
+                if (cur.state !== 'idle' && cur.state !== 'error' && cur.state !== 'interrupted') {
+                  this.sendReply(ws, this.err(f.id, 'BUSY', 'автокомпакт меняется между ходами: дождитесь конца хода или нажмите «Стоп»'));
+                  return;
+                }
+                await this.manager.stop(sid);
+              }
+            }
+            if (f.compactWindow !== undefined) this.manager.setCompactWindow(sid, f.compactWindow);
             if (f.permissionMode !== undefined) {
               const ok = await this.manager.setPermissionMode(sid, f.permissionMode);
               if (!ok) throw new Error('движок не поддерживает смену режима');
@@ -579,10 +596,10 @@ export class WssServer {
         const defBefore = this.profiles.get(f.profile)?.model;
         // ключ до смены: его копии в MCP других аккаунтов (набор z.ai и т. п.) заменим новым
         const keyBefore = f.apiKey !== undefined ? this.accountKey(f.profile) : undefined;
-        const live = f.long !== undefined || f.custom !== undefined
+        const live = f.long !== undefined || f.custom !== undefined || f.compactWindow !== undefined
           ? this.manager.list()
             .filter((s) => s.profile === internalName && s.state !== 'dead')
-            .map((s) => ({ s, was: this.profiles.launch(internalName, s.model ?? defBefore) }))
+            .map((s) => ({ s, was: this.profiles.launchSession(internalName, s.model ?? defBefore, s.compactWindow) }))
           : [];
         try {
           this.profiles.update(f.profile, {
@@ -600,6 +617,7 @@ export class WssServer {
             ...(f.maxOutputHigh !== undefined ? { maxOutputHigh: f.maxOutputHigh } : {}),
             ...(f.tasks !== undefined ? { tasks: f.tasks } : {}),
             ...(f.effortFallback !== undefined ? { effortFallback: f.effortFallback } : {}),
+            ...(f.compactWindow !== undefined ? { compactWindow: f.compactWindow } : {}),
             ...(f.apiKey !== undefined ? { apiKey: f.apiKey } : {}),
           });
         } catch (err) {
@@ -642,7 +660,7 @@ export class WssServer {
         for (const { s, was } of live) {
           const model = s.model ?? this.profiles.get(f.profile)?.model;
           if (model === undefined) continue;
-          const now = this.profiles.launch(internalName, model);
+          const now = this.profiles.launchSession(internalName, model, s.compactWindow);
           if (now.window !== was.window) {
             if (s.state === 'idle' || s.state === 'error' || s.state === 'interrupted') void this.manager.stop(s.id).catch(() => undefined);
           } else if (now.model !== undefined && now.model !== was.model) {

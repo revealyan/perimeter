@@ -642,3 +642,39 @@ describe('режим размышлений', () => {
     expect(thinkingOption({ PERIMETER_THINKING_DISPLAY: 'default' })).toBeUndefined();
   });
 });
+
+describe('автокомпакт на сессию', () => {
+  it('окно: сессии важнее своей модели, та — умолчания аккаунта; 1M и больше не задаём', () => {
+    const reg = new ProfileRegistry([
+      { name: 'zai', env: ZAI_ENV, compactWindow: 500_000, custom: [{ id: 'glm-5.4@400k', base: 'glm-5.4', ctx: 400_000 }] },
+    ]);
+    expect(reg.launchSession('zai', 'glm-5.4')).toEqual({ model: 'glm-5.4', window: 500_000 });
+    expect(reg.launchSession('zai', 'glm-5.4@400k')).toEqual({ model: 'glm-5.4[1m]', window: 400_000 });
+    expect(reg.launchSession('zai', 'glm-5.4@400k', 600_000)).toEqual({ model: 'glm-5.4[1m]', window: 600_000 });
+    expect(reg.launchSession('zai', 'glm-5.4', 1_000_000)).toEqual({ model: 'glm-5.4' });
+    expect(reg.info('zai')).toMatchObject({ compactWindow: 500_000 });
+  });
+
+  it('WSS: окно уходит в фабрику новой сессии; смена между ходами гасит процесс и запоминается; null — как у модели', async () => {
+    const { c, manager, factoryArgs } = await setup();
+    const sid = await newSession(c, 'n1', { profile: 'zai', model: 'glm-5.3[1m]', compactWindow: 400_000 });
+    expect(factoryArgs.at(-1)).toMatchObject({ compactWindow: 400_000 });
+    expect(manager.get(sid)).toMatchObject({ compactWindow: 400_000 });
+    c.send({ id: 's1', type: 'cmd:session.settings', sessionId: sid, compactWindow: 600_000 });
+    expect((await c.reply('s1')).ok).toBe(true);
+    expect(manager.get(sid)).toMatchObject({ compactWindow: 600_000, state: 'dead' });
+    // остывшая — просто запоминаем
+    c.send({ id: 's2', type: 'cmd:session.settings', sessionId: sid, compactWindow: null });
+    const r2 = await c.reply('s2');
+    expect(r2.ok).toBe(true);
+    expect(manager.get(sid)?.compactWindow).toBeUndefined();
+    expect((r2.data as { session: Record<string, unknown> }).session['compactWindow']).toBeUndefined();
+  });
+
+  it('реестр сессий переживает рестарт с окном автокомпакта', () => {
+    const f = join(tmp(), 'state.json');
+    const st = new StateStore(f);
+    st.save([{ id: '11111111-1111-4111-8111-111111111111', name: 'a', compactWindow: 450_000, lastSeq: 3 }]);
+    expect(new StateStore(f).load()[0]).toMatchObject({ compactWindow: 450_000 });
+  });
+});

@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import type { EnvId, ProfileInfo, SupervisorClient, ClientSet } from '../supervisor';
 import { CmdError, envLabel, profileLabel } from '../supervisor';
 import { highOptions, normalOptions } from '../lib/outputLimit';
+import { compactOptions } from '../lib/compactWindow';
 import { EFFORT_LABEL, EFFORT_ORDER, addCustomModel, addManualModel, baseModelId, ctxLabel, customLabel, effortRange, findModel, type EffortLevel, type ModelChoice } from '../lib/modelsModel';
 import { hiddenModels, setModelHidden, subscribeHidden } from '../lib/modelVisibility';
 import { Icon } from './Icon';
@@ -259,6 +260,13 @@ function AccountCard({ p, client, env, onLogin, open, onToggle }: {
         </span>
       </div>
       <div className="dim acct-note">Сколько модель может написать за один ответ вместе с размышлениями. На xhigh и max модель думает дольше — 32K обрезает размышления. Идущим сессиям применяется сразу.</div>
+      <div className="acct-row">
+        <span>Автокомпакт</span>
+        <select aria-label="Окно автокомпакта по умолчанию" value={p.compactWindow ?? ''} disabled={busy !== ''} onChange={(e) => void save({ compactWindow: e.target.value === '' ? null : Number(e.target.value) })}>
+          {compactOptions(p.compactWindow).map((o) => <option key={o.label} value={o.value ?? ''}>{o.label}</option>)}
+        </select>
+      </div>
+      <div className="dim acct-note">Когда контекст подходит к этому окну, Claude Code сжимает историю. Для моделей с окном 1M (glm) — 400–600K, чтобы сессия не жгла лимиты на огромном контексте. У сессии можно задать своё — в строке статуса («авто»).</div>
       {p.keyEditable && <KeyRow p={p} client={client} />}
       <label className="acct-row acct-check">
         <input type="checkbox" checked={p.tasks !== false} disabled={busy !== ''} onChange={(e) => void save({ tasks: e.target.checked })} />

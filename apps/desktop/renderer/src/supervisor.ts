@@ -52,6 +52,8 @@ export interface SessionView {
   effort?: EffortLevel;
   /** ultracode включён для сессии */
   ultracode?: boolean;
+  /** окно автокомпакта сессии (токены); нет — модели/аккаунта */
+  compactWindow?: number;
   /** сессия-воркер (сквозной сабагент): id родительской сессии */
   parentSessionId?: string;
   /** чем порождён воркер (имя инструмента делегирования); справочно */
@@ -131,6 +133,8 @@ export interface ProfileInfo {
   tasks?: boolean;
   /** стандартные уровни усилия моделям без сведений */
   effortFallback?: boolean;
+  /** окно автокомпакта по умолчанию у сессий аккаунта */
+  compactWindow?: number;
   /** ключ API задан — последние символы («…UDPw»); сам ключ в клиент не приходит */
   keyHint?: string;
   /** ключ можно задать из настроек (шлюз вроде z.ai); у подписки Claude — нет */
@@ -302,10 +306,12 @@ export interface ProfilePatch {
   maxOutputHigh?: number | null;
   tasks?: boolean;
   effortFallback?: boolean;
+  /** окно автокомпакта по умолчанию; null — убрать */
+  compactWindow?: number | null;
 }
 
 /** Поля сессии из кадров сервера (hello / session.list / ack настроек) → вид сессии. */
-type SessionFields = { model?: string; permissionMode?: string; profile?: string; projectId?: string; archived?: boolean; effort?: EffortLevel; ultracode?: boolean; parentSessionId?: string; agentOf?: string; movedTo?: string; movedFrom?: string };
+type SessionFields = { model?: string; permissionMode?: string; profile?: string; projectId?: string; archived?: boolean; effort?: EffortLevel; ultracode?: boolean; compactWindow?: number; parentSessionId?: string; agentOf?: string; movedTo?: string; movedFrom?: string };
 function applySessionFields(v: SessionView, s: SessionFields): void {
   if (s.model) v.model = s.model;
   if (s.permissionMode) v.permissionMode = s.permissionMode;
@@ -315,6 +321,8 @@ function applySessionFields(v: SessionView, s: SessionFields): void {
   if (s.effort !== undefined) v.effort = s.effort;
   else delete v.effort;
   v.ultracode = s.ultracode === true;
+  if (s.compactWindow !== undefined) v.compactWindow = s.compactWindow;
+  else delete v.compactWindow;
   // воркер делегирования: отсутствие полей = обычная сессия (не залипает после потери родителя)
   if (s.parentSessionId) v.parentSessionId = s.parentSessionId;
   else delete v.parentSessionId;
@@ -1016,7 +1024,7 @@ export class SupervisorClient {
   }
 
   /** Смена настроек живой сессии: модель/режим/усилие/ultracode на лету, профиль между ходами. effort: null — по умолчанию. */
-  async setSessionSettings(sid: string, s: { model?: string; permissionMode?: string; profile?: string; effort?: EffortLevel | null; ultracode?: boolean }): Promise<boolean> {
+  async setSessionSettings(sid: string, s: { model?: string; permissionMode?: string; profile?: string; effort?: EffortLevel | null; ultracode?: boolean; compactWindow?: number | null }): Promise<boolean> {
     const r = await this.fire({
       type: 'cmd:session.settings', sessionId: sid,
       ...(s.model !== undefined ? { model: s.model } : {}),
@@ -1024,6 +1032,7 @@ export class SupervisorClient {
       ...(s.profile !== undefined ? { profile: s.profile } : {}),
       ...(s.effort !== undefined ? { effort: s.effort } : {}),
       ...(s.ultracode !== undefined ? { ultracode: s.ultracode } : {}),
+      ...(s.compactWindow !== undefined ? { compactWindow: s.compactWindow } : {}),
     }, 'Настройки сессии не применились');
     const upd = (r?.data as { session?: { id: string } & SessionFields } | undefined)?.session;
     const v = this.sessions.get(sid);
