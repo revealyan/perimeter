@@ -124,6 +124,13 @@ export interface ProfileInfo {
   delegate?: boolean;
   /** нативные субагенты (Task/Agent) видны; по умолчанию шлюзы — нет, Claude — да */
   nativeAgents?: boolean;
+  /** лимит ответа обычно / на xhigh и выше; нет — по умолчанию Claude Code / как обычно */
+  maxOutput?: number;
+  maxOutputHigh?: number;
+  /** список задач (TaskCreate…) у сессий аккаунта */
+  tasks?: boolean;
+  /** стандартные уровни усилия моделям без сведений */
+  effortFallback?: boolean;
   /** ключ API задан — последние символы («…UDPw»); сам ключ в клиент не приходит */
   keyHint?: string;
   /** ключ можно задать из настроек (шлюз вроде z.ai); у подписки Claude — нет */
@@ -290,6 +297,11 @@ export interface ProfilePatch {
   delegate?: boolean;
   /** нативные субагенты (Task/Agent): показать/спрятать */
   nativeAgents?: boolean;
+  /** лимит ответа обычно / на xhigh и выше; null — убрать */
+  maxOutput?: number | null;
+  maxOutputHigh?: number | null;
+  tasks?: boolean;
+  effortFallback?: boolean;
 }
 
 /** Поля сессии из кадров сервера (hello / session.list / ack настроек) → вид сессии. */

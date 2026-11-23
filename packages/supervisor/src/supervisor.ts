@@ -3,10 +3,12 @@
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { SessionManager, type SpawnInfo } from './session/manager.js';
-import { fetchSupportedModels, sdkFactory } from './session/sdk.js';
+import { fetchSupportedModels, sdkFactory, thinkingOption } from './session/sdk.js';
+import type { Options } from '@anthropic-ai/claude-agent-sdk';
 import { StateStore } from './state-store.js';
 import { ThinkingStore } from './thinkingStore.js';
 import { createDelegateServerConfig, DELEGATE_SERVER, type DelegateDeps } from './delegate.js';
+import { TASK_TOOLS } from './session/tasks.js';
 import { WssServer } from './wss.js';
 import { RemoteBrowserManager, chromiumLauncher, findChromium } from './panels/rbrowser.js';
 import { accountEnv, applyProfile, ProfileRegistry } from './profiles.js';
@@ -80,8 +82,11 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
       ...(launch.window !== undefined ? { window: launch.window } : {}),
     };
     const ultracodeKeyword = profiles.ultracodeAllowed(sess.profile);
+    // лимит ответа аккаунта при усилии сессии (на ходу меняется вместе с усилием — wss → setFlags)
+    const outputTokens = profiles.outputTokens(sess.profile, sess.effort);
     return {
       ...withProfile,
+      ...(outputTokens !== undefined ? { outputTokens } : {}),
       ...(base.cwd !== undefined || sess.cwd !== undefined ? { cwd: sess.cwd ?? base.cwd } : {}),
       ...(sess.permissionMode !== undefined ? { permissionMode: sess.permissionMode as typeof base.permissionMode }
         : base.permissionMode !== undefined ? { permissionMode: base.permissionMode } : {}),
@@ -90,6 +95,20 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
       ...(!ultracodeKeyword ? { ultracodeKeyword: false } : {}),
     };
   };
+
+  // Инструменты аккаунта — фиксируются на старте процесса (и на prewarm тёплого): холодный путь и пул одинаково.
+  // - нативные Task/Agent внутрипроцессные (в дереве сессий не видны, чужих аккаунтов не умеют) — прячем у шлюзов
+  //   (настройка nativeAgents, по умолчанию выкл: моделей Anthropic там нет);
+  // - список задач (как в Claude Code Desktop): в режиме SDK Claude Code даёт TaskCreate/TaskUpdate… только старым
+  //   моделям; явное перечисление в allowedTools включает их любой (проверено подставным шлюзом 23.11; env
+  //   CLAUDE_CODE_ENABLE_TODO_TOOLS — нет) и заодно не спрашивает разрешения — они ничего не меняют вне сессии.
+  // режим размышлений (summarized) — тоже на старте процесса: тёплому — в prewarm (thinkingOption, sdk.ts)
+  const thinkingDisplay = thinkingOption();
+  const prewarmBase = (profile: string | undefined): Options => ({ ...toolOptions(profile), ...(thinkingDisplay !== undefined ? { thinking: thinkingDisplay } : {}) });
+  const toolOptions = (profile: string | undefined): { allowedTools?: string[]; disallowedTools?: string[] } => ({
+    ...(profiles.tasksAllowed(profile) ? { allowedTools: [...TASK_TOOLS] } : {}),
+    ...(!profiles.nativeAgentsAllowed(profile) ? { disallowedTools: ['Task', 'Agent'] } : {}),
+  });
 
   // фабрика с учётом делегирования: воркер (parentSessionId) — read-only и без инструмента;
   // родителю, чьему профилю разрешён delegate — встроенный MCP-сервер (in-process, только этому query:
@@ -101,15 +120,12 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
     extra: { resume?: string; forkSession?: boolean } = {},
   ) => {
     const delegateOn = sess.parentSessionId === undefined && profiles.delegateAllowed(sess.profile);
-    // нативные Task/Agent — внутрипроцессные (в дереве сессий не видны, чужих аккаунтов не умеют);
-    // прячем у шлюзов — настройка аккаунта nativeAgents (по умолчанию выкл: моделей Anthropic там нет)
-    const nativeAgents = profiles.nativeAgentsAllowed(sess.profile);
     return sdkFactory({
       ...buildOptions(sess),
       ...extra,
       // воркер без worktree — read-only; worktree-воркер правит свою копию свободно
       ...(sess.parentSessionId !== undefined && sess.editable !== true ? { readonly: true } : {}),
-      ...(!nativeAgents ? { disallowedTools: ['Task', 'Agent'] } : {}),
+      ...toolOptions(sess.profile),
       ...(delegateOn
         ? { mcpServers: { [DELEGATE_SERVER]: createDelegateServerConfig(delegateDeps, { callerId: sessionId }) } }
         : {}),
@@ -154,11 +170,12 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
   const warmFor = poolProfiles(opts.poolProfiles, profiles.list().map((p) => p.name), poolSize);
   const pool = warmFor.length > 0
     ? new ProfilePools((profile) => {
-        if (profile === undefined) return poolSize > 0 ? new PrewarmPool(poolSize, {}, { defaults: base }) : null;
+        // инструменты аккаунта (задачи, нативные субагенты) — те же, что у холодного пути: фиксируются на prewarm
+        if (profile === undefined) return poolSize > 0 ? new PrewarmPool(poolSize, prewarmBase(undefined), { defaults: base }) : null;
         if (perProfile <= 0 || !profiles.get(profile)) return null;
         // env профиля (z.ai/свой CLAUDE_CONFIG_DIR) — как у холодного пути через applyProfile
         const env = applyProfile(profiles.get(profile), {}).env;
-        return new PrewarmPool(perProfile, { ...(env !== undefined ? { env } : {}) }, { defaults: base });
+        return new PrewarmPool(perProfile, { ...(env !== undefined ? { env } : {}), ...prewarmBase(profile) }, { defaults: base });
       }, warmFor)
     : null;
   pool?.fill();

@@ -12,7 +12,7 @@ import type { EngineHooks } from './session/engine.js';
 import type { QueryLike, SdkMsg, SdkUserInput } from './session/types.js';
 import { BASE_PROFILE, ProfileRegistry, isGateway, seedModels, settingsBaseUrl } from './profiles.js';
 import { WssServer } from './wss.js';
-import { flagSettings, toModelInfo } from './session/sdk.js';
+import { flagSettings, thinkingOption, toModelInfo } from './session/sdk.js';
 import { claimSettings } from './pool.js';
 import { StateStore } from './state-store.js';
 
@@ -57,9 +57,10 @@ describe('профили: модели, усилие, ultracode', () => {
     expect(reg.modelsSource('zai2')).toBe('auto'); // спросим /v1/models у z.ai
     expect(reg.models('zai2')).toBeUndefined();
     expect(reg.modelsSource('zai')).toBe('manual');
-    expect(reg.models('zai')).toEqual([{ id: 'glm-5.3[1m]', efforts: [] }]);
+    expect(reg.models('zai')).toEqual([{ id: 'glm-5.3[1m]', efforts: [...ALL] }]);
     expect(reg.ultracodeAllowed('zai')).toBe(false);
-    expect(reg.effortsFor('zai', 'glm-5.3[1m]')).toEqual([]);
+    // шлюз не сообщает об усилии — стандартные уровни (Claude Code шлёт усилие любой модели; с 23.11)
+    expect(reg.effortsFor('zai', 'glm-5.3[1m]')).toEqual([...ALL]);
     expect(reg.modelsSource('yan')).toBe('auto');
     expect(reg.models('yan')).toBeUndefined(); // ещё не спрашивали Claude Code
     expect(reg.effortsFor('yan', 'sonnet')).toBeNull(); // неизвестно — не проверяем
@@ -266,7 +267,8 @@ async function setup(opts: { fetcher?: (p: string) => Promise<ModelInfoFrame[] |
   const dir = tmp();
   const list = [
     { name: 'yan', model: 'sonnet', defaultEffort: 'high' as const },
-    { name: 'zai', env: ZAI_ENV, model: 'glm-5.3[1m]', modelsSource: 'manual' as const },
+    // effortFallback: false — WSS-тесты ниже проверяют модель без усилия (стандартные уровни шлюзу — отдельный тест)
+    { name: 'zai', env: ZAI_ENV, model: 'glm-5.3[1m]', modelsSource: 'manual' as const, effortFallback: false },
   ];
   let profiles: ProfileRegistry;
   if (opts.file) {
@@ -544,5 +546,99 @@ describe('WSS: 1M и свои модели у идущих сессий', () => 
     c.send({ id: 's1', type: 'cmd:session.settings', sessionId: sid, model: 'glm-5.3' });
     expect((await c.reply('s1')).ok).toBe(true);
     expect(manager.get(sid)).toMatchObject({ model: 'glm-5.3', state: 'dead' });
+  });
+});
+
+describe('настройки аккаунта 23.11: лимит ответа, список задач, усилие моделям без сведений', () => {
+  it('реестр: лимит по усилию (xhigh и выше — свой), не задан — undefined, только «высокий» — обычный явно по умолчанию', () => {
+    const reg = new ProfileRegistry([
+      { name: 'a', maxOutput: 64_000, maxOutputHigh: 128_000 },
+      { name: 'b' },
+      { name: 'c', maxOutputHigh: 128_000 },
+      { name: 'd', maxOutput: 48_000 },
+    ]);
+    expect(reg.outputTokens('a', 'high')).toBe(64_000);
+    expect(reg.outputTokens('a', undefined)).toBe(64_000);
+    expect(reg.outputTokens('a', 'xhigh')).toBe(128_000);
+    expect(reg.outputTokens('a', 'max')).toBe(128_000);
+    expect(reg.outputTokens('b', 'max')).toBeUndefined();
+    expect(reg.outputTokens('c', 'medium')).toBeNull(); // вернуть «по умолчанию Claude Code» явно
+    expect(reg.outputTokens('c', 'xhigh')).toBe(128_000);
+    expect(reg.outputTokens('d', 'max')).toBe(48_000); // высокий не задан — как обычно
+  });
+
+  it('оверлей старта: лимит — env Claude Code; null — пустая строка (по умолчанию модели)', () => {
+    expect(flagSettings({ outputTokens: 128_000 })).toEqual({ env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '128000' } });
+    expect(flagSettings({ outputTokens: null })).toEqual({ env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '' } });
+    expect(claimSettings({ effort: 'xhigh', outputTokens: 96_000 })).toEqual({ effortLevel: 'xhigh', env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '96000' } });
+  });
+
+  it('список задач по умолчанию у всех; моделям шлюза без усилия — стандартные уровни, у Claude — как сообщил провайдер', () => {
+    const reg = new ProfileRegistry([
+      { name: 'zai', env: ZAI_ENV, modelsSource: 'manual', models: [{ id: 'glm-5.4', efforts: [] }, { id: 'glm-x', efforts: ['high'] }] },
+      { name: 'yan' },
+      { name: 'off', env: ZAI_ENV, modelsSource: 'manual', models: [{ id: 'glm-5.4', efforts: [] }], effortFallback: false, tasks: false },
+    ]);
+    reg.setAutoModels('yan', [{ id: 'haiku', efforts: [] }]);
+    expect(reg.tasksAllowed('zai')).toBe(true);
+    expect(reg.tasksAllowed('off')).toBe(false);
+    expect(reg.models('zai')).toEqual([{ id: 'glm-5.4', efforts: [...ALL] }, { id: 'glm-x', efforts: ['high'] }]);
+    expect(reg.effortsFor('zai', 'glm-5.4')).toEqual([...ALL]);
+    expect(reg.models('yan')).toEqual([{ id: 'haiku', efforts: [] }]);
+    expect(reg.models('off')).toEqual([{ id: 'glm-5.4', efforts: [] }]);
+    expect(reg.info('zai')).toMatchObject({ tasks: true, effortFallback: true });
+    expect(reg.info('yan')).toMatchObject({ tasks: true, effortFallback: false });
+  });
+
+  it('WSS: правка аккаунта сохраняет лимиты/задачи/усилие/нативных субагентов в файл и применяет лимит к идущей сессии', async () => {
+    const { c, flags, dir } = await setup({ file: true });
+    const sid = await newSession(c, 'n1', { profile: 'zai', model: 'glm-5.3[1m]' });
+    c.send({ id: 'u1', type: 'cmd:profile.update', profile: 'zai', maxOutput: 64_000, maxOutputHigh: 128_000, tasks: false, effortFallback: false, nativeAgents: true });
+    const r = await c.reply('u1');
+    expect(r.ok).toBe(true);
+    expect((r.data as { profile: Record<string, unknown> }).profile).toMatchObject({ maxOutput: 64_000, maxOutputHigh: 128_000, tasks: false, effortFallback: false, nativeAgents: true });
+    const raw = JSON.parse(readFileSync(join(dir, 'profiles.json'), 'utf8')).profiles.find((p: { name: string }) => p.name === 'zai');
+    expect(raw).toMatchObject({ maxOutput: 64_000, maxOutputHigh: 128_000, tasks: false, effortFallback: false, nativeAgents: true });
+    await sleep(30);
+    expect(flags.at(-1)).toMatchObject({ env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000' } });
+    expect(sid).toBeTruthy();
+    // убрать оба — идущей сессии явно «по умолчанию»
+    c.send({ id: 'u2', type: 'cmd:profile.update', profile: 'zai', maxOutput: null, maxOutputHigh: null });
+    expect((await c.reply('u2')).ok).toBe(true);
+    await sleep(30);
+    expect(flags.at(-1)).toMatchObject({ env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '' } });
+  });
+
+  it('WSS: смена усилия несёт лимит аккаунта — xhigh поднимает, high возвращает', async () => {
+    const { c, flags, profiles } = await setup();
+    profiles.update('yan', { maxOutput: 64_000, maxOutputHigh: 128_000 });
+    const sid = await newSession(c, 'n1', { profile: 'yan', model: 'sonnet' });
+    c.send({ id: 's1', sessionId: sid, type: 'cmd:session.settings', effort: 'xhigh' });
+    expect((await c.reply('s1')).ok).toBe(true);
+    expect(flags.at(-1)).toEqual({ effortLevel: 'xhigh', ultracode: false, env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '128000' } });
+    c.send({ id: 's2', sessionId: sid, type: 'cmd:session.settings', effort: 'high' });
+    await c.reply('s2');
+    expect(flags.at(-1)).toEqual({ effortLevel: 'high', ultracode: false, env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000' } });
+    // ultracode без смены усилия — лимит не трогаем
+    c.send({ id: 's3', sessionId: sid, type: 'cmd:session.settings', ultracode: true });
+    await c.reply('s3');
+    expect(flags.at(-1)).toEqual({ effortLevel: 'high', ultracode: true });
+  });
+
+  it('старт сессии: лимит аккаунта при её усилии уходит в фабрику', async () => {
+    const { c, factoryArgs, profiles } = await setup();
+    profiles.update('yan', { maxOutput: 64_000, maxOutputHigh: 128_000 });
+    await newSession(c, 'n1', { profile: 'yan', model: 'sonnet', effort: 'max' });
+    // фабрика supervisor'а считает лимит сама (buildOptions) — здесь видно, что усилие дошло до неё
+    expect(factoryArgs.at(-1)).toMatchObject({ profile: 'yan', effort: 'max' });
+    expect(profiles.outputTokens('yan', factoryArgs.at(-1)!['effort'] as 'max')).toBe(128_000);
+  });
+});
+
+describe('режим размышлений', () => {
+  it('по умолчанию summarized (текст размышлений вместо пустых блоков режима updates); omitted; default — не задаём', () => {
+    expect(thinkingOption({})).toEqual({ type: 'adaptive', display: 'summarized' });
+    expect(thinkingOption({ PERIMETER_THINKING_DISPLAY: 'omitted' })).toEqual({ type: 'adaptive', display: 'omitted' });
+    expect(thinkingOption({ PERIMETER_THINKING_DISPLAY: 'default' })).toBeUndefined();
   });
 });

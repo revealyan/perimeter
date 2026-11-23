@@ -342,7 +342,7 @@ export class SessionManager {
    * Усилие и ultracode на лету (SDK applyFlagSettings). effort: null — по умолчанию модели, undefined — не менять;
    * ultracode: undefined — не менять. Мёртвая сессия: запоминаем, применится при respawn.
    */
-  async setFlags(sessionId: string, flags: { effort?: EffortLevel | null; ultracode?: boolean }): Promise<boolean> {
+  async setFlags(sessionId: string, flags: { effort?: EffortLevel | null; ultracode?: boolean; outputTokens?: number | null }): Promise<boolean> {
     const s = this.require(sessionId);
     const effort = flags.effort === undefined ? s.info.effort : (flags.effort ?? undefined);
     const ultracode = flags.ultracode ?? s.info.ultracode === true;
@@ -355,7 +355,8 @@ export class SessionManager {
       commit();
       return true;
     }
-    const ok = await s.engine.applyFlags({ effortLevel: effort ?? null, ultracode });
+    // лимит ответа не храним: при respawn он заново считается из аккаунта и усилия (buildOptions)
+    const ok = await s.engine.applyFlags({ effortLevel: effort ?? null, ultracode, ...(flags.outputTokens !== undefined ? { outputTokens: flags.outputTokens } : {}) });
     if (ok) commit();
     return ok;
   }

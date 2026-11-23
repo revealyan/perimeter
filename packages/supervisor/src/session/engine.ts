@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ContentBlock, EffortLevel, Event } from '@perimeter/protocol';
 import { AsyncQueue } from './asyncQueue.js';
+import { outputTokensEnv } from './outputTokens.js';
 import type { PermissionResult, QueryLike, SdkMsg, SdkUserInput, SystemInitMsg } from './types.js';
 
 /** Omit, распределяющийся по юниону (иначе теряются ключи вариантов). */
@@ -135,9 +136,14 @@ export class SessionEngine {
    * Усилие и ultracode на лету (SDK applyFlagSettings). Ключи шлём всегда парой: по документации SDK
    * effortLevel без ключа ultracode выключает ultracode. effortLevel null — усилие по умолчанию модели.
    */
-  async applyFlags(flags: { effortLevel: EffortLevel | null; ultracode: boolean }): Promise<boolean> {
+  async applyFlags(flags: { effortLevel: EffortLevel | null; ultracode: boolean; outputTokens?: number | null }): Promise<boolean> {
     if (!this.query?.applyFlagSettings) return false;
-    await this.query.applyFlagSettings({ effortLevel: flags.effortLevel, ultracode: flags.ultracode });
+    await this.query.applyFlagSettings({
+      effortLevel: flags.effortLevel,
+      ultracode: flags.ultracode,
+      // лимит ответа меняется вместе с усилием (настройка аккаунта «на xhigh и выше»)
+      ...(flags.outputTokens !== undefined ? { env: outputTokensEnv(flags.outputTokens) } : {}),
+    });
     return true;
   }
 

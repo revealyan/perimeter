@@ -54,6 +54,14 @@ export interface Profile {
   delegate?: boolean;
   /** нативные субагенты (Task/Agent); по умолчанию: шлюзы — нет (моделей Anthropic там нет), Claude — да */
   nativeAgents?: boolean;
+  /** лимит ответа (CLAUDE_CODE_MAX_OUTPUT_TOKENS) обычно; нет — по умолчанию Claude Code */
+  maxOutput?: number;
+  /** лимит ответа на усилии xhigh и выше; нет — как обычно */
+  maxOutputHigh?: number;
+  /** список задач (TaskCreate/TaskUpdate…); по умолчанию да */
+  tasks?: boolean;
+  /** стандартные уровни усилия моделям без сведений; по умолчанию: шлюзы — да */
+  effortFallback?: boolean;
 }
 
 export interface ProfilesFile {
@@ -78,6 +86,11 @@ export interface ProfilePatch {
   delegate?: boolean;
   /** нативные субагенты (Task/Agent): показать/спрятать */
   nativeAgents?: boolean;
+  /** лимит ответа обычно / на xhigh и выше; null — убрать */
+  maxOutput?: number | null;
+  maxOutputHigh?: number | null;
+  tasks?: boolean;
+  effortFallback?: boolean;
   /** новый ключ API (только запись в env профиля; в логи и клиенту не уходит) */
   apiKey?: string;
 }
@@ -227,6 +240,29 @@ export class ProfileRegistry {
     return p.nativeAgents ?? !isGateway(p);
   }
 
+  /** Список задач (инструменты TaskCreate/TaskUpdate…) у аккаунта; по умолчанию да. */
+  tasksAllowed(name: string | undefined): boolean {
+    return this.get(this.external(name))?.tasks ?? true;
+  }
+
+  /** Стандартные уровни усилия моделям без сведений; по умолчанию — у шлюзов. */
+  effortFallback(name: string | undefined): boolean {
+    const p = this.get(this.external(name));
+    if (!p) return false;
+    return p.effortFallback ?? isGateway(p);
+  }
+
+  /**
+   * Лимит ответа сессии при этом усилии: undefined — аккаунт лимитов не задал (ничего не трогаем),
+   * null — «по умолчанию Claude Code» (явный сброс, когда лимит на высоком усилии задан, а обычный — нет),
+   * число — CLAUDE_CODE_MAX_OUTPUT_TOKENS.
+   */
+  outputTokens(name: string | undefined, effort: EffortLevel | undefined | null): number | null | undefined {
+    const p = this.get(this.external(name));
+    if (!p || (p.maxOutput === undefined && p.maxOutputHigh === undefined)) return undefined;
+    return (isHighEffort(effort) ? p.maxOutputHigh ?? p.maxOutput : p.maxOutput) ?? null;
+  }
+
   /**
    * Модель для запуска Claude Code (--model): включён 1M — `<id>[1m]`. Уже с [1m] (ручной список) — как есть.
    * Идемпотентно: повторный вызов не добавит второй суффикс.
@@ -256,8 +292,11 @@ export class ProfileRegistry {
     const ext = this.external(name);
     const p = this.get(ext);
     if (!p || ext === undefined) return undefined;
-    if (this.modelsSource(ext) === 'manual') return p.models ?? seedModels(p);
-    return this.cache.get(ext)?.models;
+    const list = this.modelsSource(ext) === 'manual' ? p.models ?? seedModels(p) : this.cache.get(ext)?.models;
+    // шлюз не сообщает об усилии (z.ai: /v1/models без capabilities) — а Claude Code шлёт его любой модели
+    // (output_config.effort, проверено подставным шлюзом 23.11): даём выбрать стандартные уровни
+    if (!list || !this.effortFallback(ext)) return list;
+    return list.map((m) => ((m.efforts ?? []).length === 0 ? { ...m, efforts: [...FALLBACK_EFFORTS] } : m));
   }
 
   /** Уровни усилия модели; null — неизвестно (списка нет или модели в нём нет) — тогда не проверяем. */
@@ -296,6 +335,10 @@ export class ProfileRegistry {
       ultracode: this.ultracodeAllowed(name),
       delegate: this.delegateAllowed(name),
       nativeAgents: this.nativeAgentsAllowed(name),
+      ...(p.maxOutput !== undefined ? { maxOutput: p.maxOutput } : {}),
+      ...(p.maxOutputHigh !== undefined ? { maxOutputHigh: p.maxOutputHigh } : {}),
+      tasks: this.tasksAllowed(name),
+      effortFallback: this.effortFallback(name),
       ...(keyHint(p) !== undefined ? { keyHint: keyHint(p)! } : {}),
       keyEditable: keyEditable(p),
       ...(gatewayHost(p) ? { gatewayHost: gatewayHost(p)! } : {}),
@@ -417,6 +460,12 @@ export class ProfileRegistry {
       if (patch.ultracode !== undefined) r['ultracode'] = patch.ultracode;
       if (patch.delegate !== undefined) r['delegate'] = patch.delegate;
       if (patch.nativeAgents !== undefined) r['nativeAgents'] = patch.nativeAgents;
+      for (const k of ['maxOutput', 'maxOutputHigh'] as const) {
+        if (patch[k] === null) delete r[k];
+        else if (patch[k] !== undefined) r[k] = patch[k];
+      }
+      if (patch.tasks !== undefined) r['tasks'] = patch.tasks;
+      if (patch.effortFallback !== undefined) r['effortFallback'] = patch.effortFallback;
     };
 
     let entry: Record<string, unknown>;
@@ -613,8 +662,23 @@ function normalizeProfile(raw: unknown): Profile | null {
     ...(typeof r['ultracode'] === 'boolean' ? { ultracode: r['ultracode'] } : {}),
     ...(typeof r['delegate'] === 'boolean' ? { delegate: r['delegate'] } : {}),
     ...(typeof r['nativeAgents'] === 'boolean' ? { nativeAgents: r['nativeAgents'] } : {}),
+    ...(tokens(r['maxOutput']) !== undefined ? { maxOutput: tokens(r['maxOutput'])! } : {}),
+    ...(tokens(r['maxOutputHigh']) !== undefined ? { maxOutputHigh: tokens(r['maxOutputHigh'])! } : {}),
+    ...(typeof r['tasks'] === 'boolean' ? { tasks: r['tasks'] } : {}),
+    ...(typeof r['effortFallback'] === 'boolean' ? { effortFallback: r['effortFallback'] } : {}),
   };
 }
+
+/** Лимит токенов из файла: целое 1000…1 000 000, иначе нет. */
+function tokens(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1000 && v <= 1_000_000 ? v : undefined;
+}
+
+/** Уровни усилия по умолчанию — моделям, о которых шлюз ничего не сообщает (Claude Code всё равно шлёт усилие). */
+export const FALLBACK_EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** Усилие «высокое» для лимита ответа: xhigh и выше. */
+export const isHighEffort = (e: EffortLevel | undefined | null): boolean => e === 'xhigh' || e === 'max';
 
 function readCache(file: string): Map<string, CacheEntry> {
   const out = new Map<string, CacheEntry>();

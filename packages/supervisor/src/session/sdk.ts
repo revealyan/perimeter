@@ -8,6 +8,8 @@ import type { EffortLevel, ModelInfoFrame } from '@perimeter/protocol';
 import { DELEGATE_SERVER } from '../delegate.js';
 import type { EngineHooks } from './engine.js';
 import type { PermissionResult, QueryLike, SdkUserInput } from './types.js';
+import { outputTokensEnv } from './outputTokens.js';
+export { OUTPUT_TOKENS_VAR, outputTokensEnv } from './outputTokens.js';
 
 /** Наш ответ на карточку → контракт canUseTool SDK (общий для холодного пути и пула). */
 export function toSdkPermission(r: PermissionResult): SdkPermissionResult {
@@ -45,6 +47,8 @@ export interface SdkSessionOptions {
   ultracodeKeyword?: boolean;
   /** окно контекста своей модели (autoCompactWindow): Claude Code берёт его только при старте процесса */
   window?: number;
+  /** лимит ответа (CLAUDE_CODE_MAX_OUTPUT_TOKENS) оверлеем настроек; null — по умолчанию Claude Code */
+  outputTokens?: number | null;
   /** свои MCP-серверы этого query (встроенный инструмент делегирования); к .claude.json аккаунта не пишется */
   mcpServers?: Record<string, McpServerConfig>;
   /** инструменты, которые модели не видят (нативный Task прячем у делегирующих сессий — сабагенты только наши) */
@@ -71,12 +75,26 @@ export function wrapReadonly(inner: EngineHooks['canUseTool']): EngineHooks['can
   };
 }
 
-/** Флаги-оверлей настроек CLI для старта: ultracode, слово-триггер, окно контекста. Пусто — без оверлея. */
-export function flagSettings(sess: { ultracode?: boolean; ultracodeKeyword?: boolean; window?: number }): Record<string, unknown> | undefined {
+/**
+ * Как модель показывает размышления. По умолчанию Claude Code просит у API режим «updates»: вместо текста
+ * размышлений — короткие связки (connector_text), thinking-блоки приходят пустыми (у Anthropic — и в транскрипте:
+ * «размышления пропадают»). Явный summarized возвращает текст (проверено подставным шлюзом 23.11: уходит
+ * thinking.display=summarized без беты updates, усилие на месте). PERIMETER_THINKING_DISPLAY: summarized
+ * (по умолчанию) · omitted · default — не задавать (как решит Claude Code).
+ */
+export function thinkingOption(env: Record<string, string | undefined> = process.env): Options['thinking'] | undefined {
+  const v = (env['PERIMETER_THINKING_DISPLAY'] ?? 'summarized').trim();
+  if (v === 'summarized' || v === 'omitted') return { type: 'adaptive', display: v };
+  return undefined;
+}
+
+/** Флаги-оверлей настроек CLI для старта: ultracode, слово-триггер, окно контекста, лимит ответа. Пусто — без оверлея. */
+export function flagSettings(sess: { ultracode?: boolean; ultracodeKeyword?: boolean; window?: number; outputTokens?: number | null }): Record<string, unknown> | undefined {
   const out: Record<string, unknown> = {
     ...(sess.ultracode === true && sess.ultracodeKeyword !== false ? { ultracode: true } : {}),
     ...(sess.ultracodeKeyword === false ? { workflowKeywordTriggerEnabled: false } : {}),
     ...(sess.window !== undefined ? { autoCompactWindow: sess.window } : {}),
+    ...(sess.outputTokens !== undefined ? { env: outputTokensEnv(sess.outputTokens) } : {}),
   };
   return Object.keys(out).length > 0 ? out : undefined;
 }
@@ -114,6 +132,7 @@ export function sdkFactory(sess: SdkSessionOptions) {
       ...(sess.mcpServers !== undefined ? { mcpServers: sess.mcpServers } : {}),
       ...(sess.disallowedTools !== undefined ? { disallowedTools: sess.disallowedTools } : {}),
       ...(sess.effort !== undefined ? { effort: sess.effort } : {}),
+      ...(thinkingOption() !== undefined ? { thinking: thinkingOption()! } : {}),
       ...(flagSettings(sess) !== undefined ? { settings: flagSettings(sess) as Options['settings'] } : {}),
       // явный путь к CLI (packaged-приложение: бинарь в докачанном node_modules — сам SDK его из бандла не разрезолвит)
       ...(process.env.PERIMETER_CLI_PATH !== undefined ? { pathToClaudeCodeExecutable: process.env.PERIMETER_CLI_PATH } : {}),

@@ -426,6 +426,7 @@ export class WssServer {
             ...sess,
             ...(launch.model !== undefined ? { model: launch.model } : {}),
             ...(!this.profiles.ultracodeAllowed(profile) ? { ultracodeKeyword: false } : {}),
+            ...(this.profiles.outputTokens(profile, sess.effort) !== undefined ? { outputTokens: this.profiles.outputTokens(profile, sess.effort)! } : {}),
           },
           profile,
         ) ?? null;
@@ -522,9 +523,12 @@ export class WssServer {
               if (!ok) throw new Error('движок не поддерживает смену режима');
             }
             if (effort !== undefined || ultracode !== undefined) {
+              // лимит ответа аккаунта зависит от усилия (xhigh и выше — свой) — меняется вместе с ним
+              const outputTokens = effort !== undefined ? this.profiles.outputTokens(cur.profile, effort) : undefined;
               const ok = await this.manager.setFlags(sid, {
                 ...(effort !== undefined ? { effort } : {}),
                 ...(ultracode !== undefined ? { ultracode } : {}),
+                ...(outputTokens !== undefined ? { outputTokens } : {}),
               });
               if (!ok) throw new Error('движок не поддерживает смену усилия и ultracode');
             }
@@ -591,6 +595,11 @@ export class WssServer {
             ...(f.defaultEffort !== undefined ? { defaultEffort: f.defaultEffort } : {}),
             ...(f.ultracode !== undefined ? { ultracode: f.ultracode } : {}),
             ...(f.delegate !== undefined ? { delegate: f.delegate } : {}),
+            ...(f.nativeAgents !== undefined ? { nativeAgents: f.nativeAgents } : {}),
+            ...(f.maxOutput !== undefined ? { maxOutput: f.maxOutput } : {}),
+            ...(f.maxOutputHigh !== undefined ? { maxOutputHigh: f.maxOutputHigh } : {}),
+            ...(f.tasks !== undefined ? { tasks: f.tasks } : {}),
+            ...(f.effortFallback !== undefined ? { effortFallback: f.effortFallback } : {}),
             ...(f.apiKey !== undefined ? { apiKey: f.apiKey } : {}),
           });
         } catch (err) {
@@ -618,6 +627,16 @@ export class WssServer {
           const keyAfter = this.accountKey(f.profile);
           if (keyBefore && keyAfter && keyBefore !== keyAfter) void this.rekeyMcp(f.profile, keyBefore, keyAfter);
         }
+        // лимит ответа — идущим сессиям аккаунта сразу (env на ходу); снят совсем — «по умолчанию» явно
+        if (f.maxOutput !== undefined || f.maxOutputHigh !== undefined) {
+          for (const s of this.manager.list()) {
+            if (s.profile !== internalName || s.state === 'dead') continue;
+            void this.manager.setFlags(s.id, { outputTokens: this.profiles.outputTokens(internalName, s.effort) ?? null }).catch(() => undefined);
+          }
+        }
+        // инструменты (задачи, нативные субагенты) фиксируются на старте процесса: тёплый процесс — пересоздать;
+        // идущие сессии получат их со следующим процессом (после простоя/respawn)
+        if (f.tasks !== undefined || f.nativeAgents !== undefined) this.pool?.reset?.(internalName);
         // 1M переключается сменой модели на ходу; окно контекста — только новым процессом:
         // простаивающие гасим (следующее сообщение поднимет с новым окном), занятые подхватят после «Стоп»
         for (const { s, was } of live) {

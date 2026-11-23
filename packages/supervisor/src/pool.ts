@@ -26,6 +26,8 @@ export interface ClaimParams {
   ultracode?: boolean;
   /** false — слово «ultracode» не срабатывает (аккаунту запрещено) */
   ultracodeKeyword?: boolean;
+  /** лимит ответа (env-оверлеем, как applyFlagSettings); null — по умолчанию Claude Code */
+  outputTokens?: number | null;
 }
 
 /** Оверлей настроек для claim: усилие + флаги ultracode; пусто — без оверлея (claim без лишнего круга). */

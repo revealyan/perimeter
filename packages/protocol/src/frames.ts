@@ -133,6 +133,14 @@ export const profileInfo = z.object({
   delegate: z.boolean().optional(),
   /** нативные субагенты (Task/Agent) видны; по умолчанию: Claude-аккаунты — да, шлюзы — нет (моделей Anthropic нет) */
   nativeAgents: z.boolean().optional(),
+  /** лимит ответа модели (CLAUDE_CODE_MAX_OUTPUT_TOKENS), обычно; нет — по умолчанию Claude Code (32K у незнакомых ему моделей) */
+  maxOutput: z.number().int().optional(),
+  /** лимит ответа на усилии xhigh и выше; нет — как обычно */
+  maxOutputHigh: z.number().int().optional(),
+  /** список задач (TaskCreate/TaskUpdate…, как в Claude Code Desktop); по умолчанию да */
+  tasks: z.boolean().optional(),
+  /** моделям без сведений об усилии (шлюз не сообщает) — стандартные уровни; по умолчанию: шлюзы — да */
+  effortFallback: z.boolean().optional(),
   /** ключ API задан: последние символы («…UDPw»); сам ключ клиенту не уходит никогда */
   keyHint: z.string().max(12).optional(),
   /** ключ можно задать из UI (аккаунт через шлюз или с ключом в env); у подписки Claude — нет */
@@ -281,6 +289,13 @@ export const cmdProfileUpdate = cmdBase.extend({
   delegate: z.boolean().optional(),
   /** нативные субагенты (Task/Agent): показать/спрятать у аккаунта */
   nativeAgents: z.boolean().optional(),
+  /** лимит ответа обычно / на xhigh и выше; null — убрать (по умолчанию Claude Code / как обычно) */
+  maxOutput: z.number().int().min(1000).max(1_000_000).nullable().optional(),
+  maxOutputHigh: z.number().int().min(1000).max(1_000_000).nullable().optional(),
+  /** список задач у аккаунта */
+  tasks: z.boolean().optional(),
+  /** стандартные уровни усилия моделям без сведений */
+  effortFallback: z.boolean().optional(),
   /** новый ключ API аккаунта — только запись (в env профиля); обратно не отдаётся */
   apiKey: z.string().min(8).max(512).regex(/^\S+$/, 'ключ без пробелов').optional(),
 });

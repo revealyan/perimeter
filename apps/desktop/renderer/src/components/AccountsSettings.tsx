@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { EnvId, ProfileInfo, SupervisorClient, ClientSet } from '../supervisor';
 import { CmdError, envLabel, profileLabel } from '../supervisor';
+import { highOptions, normalOptions } from '../lib/outputLimit';
 import { EFFORT_LABEL, EFFORT_ORDER, addCustomModel, addManualModel, baseModelId, ctxLabel, customLabel, effortRange, findModel, type EffortLevel, type ModelChoice } from '../lib/modelsModel';
 import { hiddenModels, setModelHidden, subscribeHidden } from '../lib/modelVisibility';
 import { Icon } from './Icon';
@@ -245,7 +246,30 @@ function AccountCard({ p, client, env, onLogin, open, onToggle }: {
           )
           : <span className="dim">{manual ? 'шлюз не принимает усилие — в поле ввода переключателя нет' : 'у моделей аккаунта усилия нет'}</span>}
       </div>
+      <div className="acct-row">
+        <span>Лимит ответа</span>
+        <span className="acct-limits">
+          <select aria-label="Лимит ответа обычно" value={p.maxOutput ?? ''} disabled={busy !== ''} onChange={(e) => void save({ maxOutput: e.target.value === '' ? null : Number(e.target.value) })}>
+            {normalOptions(p.maxOutput).map((o) => <option key={o.label} value={o.value ?? ''}>{o.label}</option>)}
+          </select>
+          <span className="dim">на xhigh и max</span>
+          <select aria-label="Лимит ответа на xhigh и max" value={p.maxOutputHigh ?? ''} disabled={busy !== ''} onChange={(e) => void save({ maxOutputHigh: e.target.value === '' ? null : Number(e.target.value) })}>
+            {highOptions(p.maxOutputHigh).map((o) => <option key={o.label} value={o.value ?? ''}>{o.label}</option>)}
+          </select>
+        </span>
+      </div>
+      <div className="dim acct-note">Сколько модель может написать за один ответ вместе с размышлениями. На xhigh и max модель думает дольше — 32K обрезает размышления. Идущим сессиям применяется сразу.</div>
       {p.keyEditable && <KeyRow p={p} client={client} />}
+      <label className="acct-row acct-check">
+        <input type="checkbox" checked={p.tasks !== false} disabled={busy !== ''} onChange={(e) => void save({ tasks: e.target.checked })} />
+        <span>список задач — агент ведёт план (TaskCreate/TaskUpdate), как в Claude Code Desktop{p.tasks === false ? ' · выключен' : ''}; новым сессиям и после простоя</span>
+      </label>
+      {p.gatewayHost !== undefined && (
+        <label className="acct-row acct-check">
+          <input type="checkbox" checked={p.effortFallback !== false} disabled={busy !== ''} onChange={(e) => void save({ effortFallback: e.target.checked })} />
+          <span>усилие у моделей без сведений — шлюз не сообщает, какие уровни поддерживает модель; Claude Code всё равно передаёт усилие, здесь — выбор из стандартных</span>
+        </label>
+      )}
       <label className="acct-row acct-check">
         <input type="checkbox" checked={p.ultracode !== false} disabled={busy !== ''} onChange={(e) => void save({ ultracode: e.target.checked })} />
         <span>ultracode — агент раздаёт работу субагентам{p.ultracode === false ? ' · выключен: кнопки в поле ввода нет' : ''}</span>

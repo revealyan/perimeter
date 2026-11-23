@@ -1328,3 +1328,5 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .dw-prompt { font-size: var(--fs-sm); color: var(--fg-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .dw-text { font-size: var(--fs-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .dw-feed .step { margin: 0; }
+/* лимит ответа аккаунта: два выбора в строку */
+.acct-limits { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
