@@ -22,6 +22,7 @@ import { fileChanges } from './lib/feedModel';
 import { groupOf } from './lib/sessionGroups';
 import { afterPaint, requestComposerInsert } from './composeBus';
 import { COMPOSER_STYLE_KEY, draftKey, parseComposerStyle, type ComposerStyle } from './lib/composerModel';
+import { localSupBusy } from './lib/localSup';
 
 const PANEL_KEY = 'perimeter:panel';
 
@@ -332,10 +333,10 @@ export default function App() {
               {client.environment === 'local'
                 ? `Локальный supervisor: ${localSup || 'нет связи'}${localSup === 'запущен' ? ' — подключаемся…' : ''}`
                 : client.status === 'connecting' ? 'Подключаемся к supervisor…' : 'Нет связи с supervisor — переподключаемся. Сессии на сервере продолжают работать.'}
-              {client.environment === 'local' && window.perimeterIPC && localSup !== 'запущен' && localSup !== 'запускается…' && (
+              {client.environment === 'local' && window.perimeterIPC && localSup !== 'запущен' && !localSupBusy(localSup) && (
                 <button className="link-btn" onClick={() => void window.perimeterIPC?.startLocalSupervisor()}>запустить</button>
               )}
-              <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>
+              {!(client.environment === 'local' && localSupBusy(localSup)) && <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>}
             </div>
           )}
           {enabled.filter((e) => clients.get(e).lastError !== '').map((e, i) => (

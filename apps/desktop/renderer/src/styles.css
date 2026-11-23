@@ -207,6 +207,7 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .env-offline { display: flex; align-items: center; gap: 8px; padding: 0 8px 0 30px; font-size: var(--fs-sm); min-width: 0; }
 .env-offline .link-btn { font-size: var(--fs-sm); white-space: nowrap; flex: none; }
 .env-off { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.env-off.wrap { white-space: normal; overflow-wrap: anywhere; }
 /* S1: секция среды — шапка + строки по статусу без заголовков групп */
 .env-section { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .env-rows { display: flex; flex-direction: column; gap: 4px; }

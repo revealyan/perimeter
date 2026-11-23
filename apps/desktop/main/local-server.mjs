@@ -3,13 +3,26 @@
 // по package-lock бандла — мини-npm: скачать tgz, сверить integrity, распаковать. Один раз на версию;
 // обновление = новая папка версии, откат = прежняя (та же механика, что на VPS).
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { once } from 'node:events';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { extract } from 'tar';
 
-/** Прогресс установки строками («докачиваю движок: 2/5 · node-pty»). */
-export async function ensureLocalServer({ bundleDir, installRoot, onStatus = () => {} }) {
+/** Нет ни байта столько времени — загрузка считается зависшей (иначе статус «докачиваю» висел вечно). */
+export const STALL_MS = 60_000;
+/** Попыток на пакет: сеть до registry бывает рваной, движок весит ~160 МБ. */
+const ATTEMPTS = 3;
+/** Пометка «пакет поставлен целиком» в его папке: повтор после сбоя не качает заново уже готовое. */
+const PKG_MARK = '.perimeter-installed';
+
+const mb = (n) => (n / 1048576).toFixed(n >= 10 * 1048576 ? 0 : 1);
+
+/**
+ * Прогресс установки строками («докачиваю движок: 2/2 · claude-agent-sdk-win32-x64 · 45 из 153 МБ»).
+ * fetchImpl/stallMs — для тестов.
+ */
+export async function ensureLocalServer({ bundleDir, installRoot, onStatus = () => {}, fetchImpl = fetch, stallMs = STALL_MS }) {
   const manifest = JSON.parse(readFileSync(join(bundleDir, 'manifest.json'), 'utf8'));
   const version = manifest.version;
   const dir = join(installRoot, version);
@@ -17,7 +30,7 @@ export async function ensureLocalServer({ bundleDir, installRoot, onStatus = () 
   if (existsSync(marker)) return { version, dir };
 
   onStatus(`готовлю локальный supervisor ${version}`);
-  rmSync(dir, { recursive: true, force: true });
+  // папку версии не сносим: пакеты, уже поставленные прошлой (оборвавшейся) попыткой, переиспользуются
   mkdirSync(dir, { recursive: true });
   for (const f of ['supervisor.mjs', 'package.json', 'package-lock.json', 'manifest.json']) {
     if (existsSync(join(bundleDir, f))) copyFileSync(join(bundleDir, f), join(dir, f));
@@ -31,34 +44,100 @@ export async function ensureLocalServer({ bundleDir, installRoot, onStatus = () 
   const total = names.length;
   for (let i = 0; i < names.length; i++) {
     const p = names[i];
-    onStatus(`докачиваю движок: ${i + 1}/${total} · ${p.name}`);
-    await installPackage(p, join(dir, 'node_modules', p.name));
+    const dest = join(dir, 'node_modules', p.name);
+    const mark = join(dest, PKG_MARK);
+    if (existsSync(mark) && readFileSync(mark, 'utf8').trim() === p.integrity) continue;
+    const head = `докачиваю движок: ${i + 1}/${total} · ${p.name.replace(/^@[^/]+\//, '')}`;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await installPackage(p, dest, {
+          fetchImpl,
+          stallMs,
+          onProgress: (got, size) => onStatus(`${head} · ${size ? `${mb(got)} из ${mb(size)} МБ` : `${mb(got)} МБ`}${attempt > 1 ? ` (попытка ${attempt})` : ''}`),
+          onExtract: () => onStatus(`${head} · распаковываю…`),
+        });
+        writeFileSync(mark, `${p.integrity}\n`, 'utf8');
+        break;
+      } catch (e) {
+        if (attempt >= ATTEMPTS) throw e;
+        onStatus(`${head} · сбой: ${String(e.message).slice(0, 80)} — пробую ещё раз`);
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
+    }
   }
 
   writeFileSync(marker, `${version}\n`, 'utf8');
   return { version, dir };
 }
 
-async function installPackage(p, dest) {
-  const res = await fetch(p.resolved, { redirect: 'follow' });
-  if (!res.ok) throw new Error(`не скачался ${p.name}: HTTP ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  // integrity вида «sha512-<base64>»
-  const m = /^sha512-([A-Za-z0-9+/=]+)$/.exec(p.integrity ?? '');
-  if (m) {
-    const got = createHash('sha512').update(buf).digest('base64');
-    if (got !== m[1]) throw new Error(`${p.name}: не сошлась контрольная сумма (испорчен скачиванием?)`);
+/** Скачать tgz потоком в файл (не в память — движок ~160 МБ), считая sha512 и прогресс; зависание — ошибка. */
+export async function downloadTo(url, file, { fetchImpl = fetch, stallMs = STALL_MS, onProgress = () => {} } = {}) {
+  const ac = new AbortController();
+  let stalled = false;
+  let timer = null;
+  const arm = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { stalled = true; ac.abort(); }, stallMs);
+  };
+  const hash = createHash('sha512');
+  let out = null;
+  try {
+    arm();
+    const res = await fetchImpl(url, { redirect: 'follow', signal: ac.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.body) throw new Error('пустой ответ');
+    const size = Number(res.headers.get('content-length')) || 0;
+    out = createWriteStream(file);
+    let got = 0;
+    let shown = 0;
+    onProgress(0, size);
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      arm();
+      hash.update(value);
+      got += value.length;
+      if (!out.write(value)) await once(out, 'drain');
+      // прогресс — не чаще, чем на каждый мегабайт (статус уходит в окно по IPC)
+      if (got - shown >= 1048576) { shown = got; onProgress(got, size); }
+    }
+    onProgress(got, size);
+    out.end();
+    await once(out, 'close');
+    out = null;
+    return hash.digest('base64');
+  } catch (e) {
+    if (stalled) throw new Error(`загрузка встала: ${Math.round(stallMs / 1000)} с без данных — проверьте сеть и нажмите «запустить»`);
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+    // оборвалось посреди записи — дождаться закрытия файла (на Windows открытый файл не удалить)
+    if (out) { out.destroy(); await once(out, 'close').catch(() => undefined); }
   }
+}
+
+async function installPackage(p, dest, { fetchImpl, stallMs, onProgress, onExtract }) {
   // tar делает chdir в C — папка назначения должна существовать (и быть пустой)
   rmSync(dest, { recursive: true, force: true });
-  mkdirSync(dest, { recursive: true });
-  // tar читает архив из файла: пишем буфер во временный и распаковываем (опции buffer у extract нет)
+  mkdirSync(dirname(dest), { recursive: true });
+  // архив — во временный файл рядом (tar читает из файла: опции buffer у extract нет)
   const tmp = `${dest}.tgz-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  writeFileSync(tmp, buf);
   try {
+    let got;
+    try {
+      got = await downloadTo(p.resolved, tmp, { fetchImpl, stallMs, onProgress });
+    } catch (e) {
+      throw new Error(`не скачался ${p.name}: ${e.message}`);
+    }
+    // integrity вида «sha512-<base64>»
+    const m = /^sha512-([A-Za-z0-9+/=]+)$/.exec(p.integrity ?? '');
+    if (m && got !== m[1]) throw new Error(`${p.name}: не сошлась контрольная сумма (испорчен скачиванием?)`);
+    onExtract();
+    mkdirSync(dest, { recursive: true });
     await extract({ file: tmp, strip: 1, C: dest, strict: true });
   } finally {
-    rmSync(tmp, { force: true });
+    try { rmSync(tmp, { force: true }); } catch { /* не удалился временный — не прячем им настоящую ошибку */ }
   }
   if (!existsSync(join(dest, 'package.json'))) throw new Error(`${p.name}: распаковка не дала файлов`);
 }

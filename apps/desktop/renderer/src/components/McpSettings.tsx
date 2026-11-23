@@ -9,6 +9,7 @@ import { CmdError, envLabel, profileLabel, type McpServer, type McpShared, type 
 import { Icon } from './Icon';
 import { SubscriptionLogin } from './AddAccountDialog';
 import { AddMcp } from './McpInstall';
+import { keepKnownStatuses } from '../lib/mcpStatus';
 
 function errText(e: unknown): string {
   return e instanceof CmdError || e instanceof Error ? e.message : String(e);
@@ -93,7 +94,9 @@ export function McpSettings({ client }: { client: SupervisorClient }) {
     setErr('');
     if (check) setChecking(true);
     try {
-      setData(await client.mcpShared(check));
+      const res = await client.mcpShared(check);
+      // без проверки статусы приходят «unknown» — известные не затираем (иначе список моргает после каждого действия)
+      setData((prev) => (check ? res : keepKnownStatuses(prev, res)));
     } catch (e) {
       // supervisor до общего списка MCP: команды не знает
       if (e instanceof CmdError && /unknown|неизвест|BAD_FRAME|PARSE/i.test(`${e.code} ${e.message}`)) setOld(true);
@@ -103,10 +106,11 @@ export function McpSettings({ client }: { client: SupervisorClient }) {
     }
   };
   // сначала быстро (по файлам настроек), затем со статусами
+  // другая среда — список с нуля; переподключение той же — старый список виден, пока не придёт новый
+  useEffect(() => { setData(null); }, [client]);
   useEffect(() => {
-    setData(null);
     if (live) void load(false).then(() => load(true));
-  }, [live]);
+  }, [live, client]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const label = (t: { profiles: string[] }) => t.profiles.map((n) => profileLabel(client.profiles.find((p) => p.name === n) ?? { name: n })).join(' · ');
   const toggle = async (t: { id: string }, r: McpSharedRow, on: boolean) => {

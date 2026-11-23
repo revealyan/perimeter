@@ -14,7 +14,10 @@ export const GROUP_LABEL: Record<GroupId, string> = {
 };
 const ORDER: GroupId[] = ['waiting', 'working', 'ready', 'fresh', 'cold'];
 
-export type SessionLike = Pick<SessionView, 'id' | 'name' | 'state' | 'archived' | 'lastActivity' | 'permissions' | 'items' | 'lastResult' | 'projectId' | 'parentSessionId'>;
+export type SessionLike = Pick<SessionView, 'id' | 'name' | 'state' | 'archived' | 'lastActivity' | 'sortAt' | 'permissions' | 'items' | 'lastResult' | 'projectId' | 'parentSessionId'>;
+
+/** Момент для порядка в списках: sortAt (заморожен на время хода), нет — lastActivity. */
+export const orderAt = (s: { lastActivity: number; sortAt?: number }): number => s.sortAt ?? s.lastActivity;
 
 /** Был ли у сессии хоть один ход (итог хода или ответ агента; после ресинка итогов в ленте нет). */
 export function hasResult(s: Pick<SessionView, 'lastResult' | 'items'>): boolean {
@@ -51,7 +54,7 @@ export function groupSessions<T extends SessionLike>(list: Iterable<T>, filter: 
     return pid === filter.projectId;
   };
   const passed = [...list].filter((s) => inProject(s) && (q === '' || s.name.toLowerCase().includes(q)));
-  const byRecent = (a: T, b: T) => b.lastActivity - a.lastActivity;
+  const byRecent = (a: T, b: T) => orderAt(b) - orderAt(a);
   const live = passed.filter((s) => !s.archived);
   const buckets = new Map<GroupId, T[]>();
   for (const s of live) {

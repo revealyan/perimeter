@@ -62,6 +62,11 @@ export interface SessionView {
   movedFrom?: string;
   /** epoch последней активности (для «активна N мин назад») */
   lastActivity: number;
+  /**
+   * Момент для порядка в сайдбаре: как lastActivity, но пока идёт ход — заморожен (иначе работающие сессии
+   * и их проекты менялись местами на каждое событие потока). Сдвигают: твоё сообщение, конец хода, простой.
+   */
+  sortAt?: number;
   items: FeedItem[];
   permissions: PermissionCard[];
   printing: string | null;
@@ -1178,7 +1183,7 @@ export class SupervisorClient {
     const s = this.sessions.get(sid);
     this.localId += 1;
     s?.items.push({ id: `local-${this.localId}`, kind: 'user', data: { text, ...(images?.length ? { images } : {}) }, ts: Date.now() });
-    if (s) s.lastActivity = Date.now();
+    if (s) { s.lastActivity = Date.now(); s.sortAt = s.lastActivity; }
     void this.fire({ type: 'cmd:message.send', sessionId: sid, text: text || ' ', ...(images?.length ? { images } : {}) }, 'Сообщение не отправлено');
     this.notify();
   }
@@ -1642,6 +1647,8 @@ export class SupervisorClient {
       default:
         break;
     }
+    // порядок в сайдбаре: во время хода не двигаем (первое значение — сразу, чтобы было от чего считать)
+    if (s.sortAt === undefined || !isRunningState(s.state)) s.sortAt = s.lastActivity;
     this.notify();
   }
 
@@ -1692,4 +1699,9 @@ export class ClientSet {
     this.map.delete(env);
     void cacheStore.dropEnv(env);
   }
+}
+
+/** Ход идёт (порядок сессии в сайдбаре заморожен). */
+function isRunningState(state: SessionView['state']): boolean {
+  return state === 'working' || state === 'initializing' || state === 'creating';
 }

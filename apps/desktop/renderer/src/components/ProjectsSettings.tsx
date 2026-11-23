@@ -25,14 +25,19 @@ export function ProjectsSettings({ clients, envs, initialEnv }: { clients: Clien
   const [rootDraft, setRootDraft] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
+  // envs приходит новым массивом на каждый рендер (а рендер — на каждое событие supervisor'а): зависеть от
+  // содержимого, иначе скан папок и git всех проектов шёл на каждое событие
+  const envsKey = envs.join('\n');
   const refresh = useCallback(() => {
     for (const e of envs) {
       const c = clients.get(e);
       if (c.status !== 'live' || !c.storage) { setScan((s) => ({ ...s, [e]: null })); continue; }
       void c.scanProjects().then((r) => setScan((s) => ({ ...s, [e]: r })), (x: unknown) => { if (e === env) setErr(errText(x)); });
     }
-  }, [envs, clients, env]);
-  useEffect(() => { refresh(); }, [refresh]);
+  }, [envsKey, clients, env]); // eslint-disable-line react-hooks/exhaustive-deps
+  // пересканировать и когда среда появилась на связи / пропала
+  const liveKey = envs.map((e) => { const c = clients.get(e); return c.status === 'live' && c.storage ? '1' : '0'; }).join('');
+  useEffect(() => { refresh(); }, [refresh, liveKey]);
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);

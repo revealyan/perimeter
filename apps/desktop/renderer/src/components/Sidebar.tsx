@@ -11,6 +11,7 @@ import { lastAction } from '../lib/feedModel';
 import { STATE_LABEL, ago } from './labels';
 import { Icon, type IconName } from './Icon';
 import { MultiLine, ProjectTag, usePopover } from './ui';
+import { localSupBusy } from '../lib/localSup';
 
 const TRANSFER_TIP = 'история переедет, процесс здесь остановится';
 
@@ -301,12 +302,15 @@ function EnvOffline({ env, client, localSup }: { env: EnvId; client: SupervisorC
     : client.status === 'connecting'
       ? 'подключаемся…'
       : isRemote(env) ? 'нет связи — сессии на сервере продолжают работать' : 'нет связи с локальным supervisor';
-  const canStart = env === 'local' && ipc !== undefined && localSup !== 'запущен' && localSup !== 'запускается…';
+  // ставится/стартует — кнопки бесполезны (и мигали рядом с ходом установки): видна только строка хода
+  const busy = env === 'local' && localSupBusy(localSup);
+  const canStart = env === 'local' && ipc !== undefined && localSup !== 'запущен' && !busy;
   return (
     <div className="env-offline" role="status">
-      <span className="warn-text env-off">{text}</span>
+      {/* ход установки длинный («… · 45 из 153 МБ») — переносится, а не режется многоточием */}
+      <span className={`warn-text env-off${busy ? ' wrap' : ''}`} data-tip={text}>{busy ? localSup : text}</span>
       {canStart && <button className="link-btn" onClick={() => void ipc?.startLocalSupervisor()}>запустить</button>}
-      <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>
+      {!busy && <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>}
     </div>
   );
 }

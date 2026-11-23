@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layoutEnvs, mergeProjects, projectGroups } from './envSections';
 
-type S = { id: string; name: string; state: string; archived?: boolean; lastActivity: number; permissions: never[] | Array<{ requestId: string; toolName: string; input: unknown; at: number }>; items: Array<{ id: string; kind: 'text'; data: Record<string, unknown> }>; projectId?: string; lastResult?: undefined; parentSessionId?: string };
+type S = { id: string; name: string; state: string; archived?: boolean; lastActivity: number; sortAt?: number; permissions: never[] | Array<{ requestId: string; toolName: string; input: unknown; at: number }>; items: Array<{ id: string; kind: 'text'; data: Record<string, unknown> }>; projectId?: string; lastResult?: undefined; parentSessionId?: string };
 const mk = (id: string, state: string, t: number, o: Partial<S> = {}): S => ({ id, name: id, state, lastActivity: t, permissions: [], items: [], ...o });
 const done = [{ id: 'x', kind: 'text' as const, data: {} }];
 
@@ -114,5 +114,22 @@ describe('projectGroups — сессии среды по проектам', () =
     const g = projectGroups([row('a', 'p2', 10)], projects, { includeEmpty: true });
     expect(g.map((x) => x.name)).toEqual(['конвейер', 'лендинг', 'perimeter']); // русская сортировка: кириллица раньше латиницы
     expect(g[2]!.rows).toHaveLength(0);
+  });
+});
+
+describe('порядок не скачет во время хода (sortAt)', () => {
+  it('проекты и сессии упорядочены по sortAt, а не по последнему событию потока', () => {
+    // a — работает в проекте p1, последнее событие только что (lastActivity 100), но ход начат в 10;
+    // b — работает в p2, ход начат в 20 → p2 выше, хотя событие у a свежее
+    const rows = [
+      { s: mk('a', 'working', 100, { projectId: 'p1', sortAt: 10 }), group: 'working' as const },
+      { s: mk('b', 'working', 90, { projectId: 'p2', sortAt: 20 }), group: 'working' as const },
+    ];
+    const g = projectGroups(rows, [{ id: 'p1', name: 'один' }, { id: 'p2', name: 'два' }]);
+    expect(g.map((x) => x.projectId)).toEqual(['p2', 'p1']);
+  });
+  it('без sortAt (старый кэш) — по lastActivity, как раньше', () => {
+    const l = layoutEnvs([{ env: 'vps', sessions: [mk('a', 'idle', 1, { items: done }), mk('b', 'idle', 2, { items: done })], projectName: () => undefined }]);
+    expect(l.sections[0]!.rows.map((r) => r.s.id)).toEqual(['b', 'a']);
   });
 });

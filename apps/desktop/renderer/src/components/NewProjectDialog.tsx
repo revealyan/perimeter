@@ -75,8 +75,14 @@ export function NewProjectDialog({ clients, envs, initialEnv, onClose, onCreated
     return out;
   }, [envs, source, paths, effName, slugOk, slug, urlOk, gitUrl]);
 
-  // превью по средам — с паузой в наборе
+  // Превью по средам — с паузой в наборе. Перезапрос только когда поменялся сам запрос или связь среды:
+  // envs/clients приходят новыми на каждое событие supervisor'а — по ним превью моргало «проверяю…» ↔ итог по кругу.
+  const planKey = JSON.stringify(envs.map((e) => {
+    const c = clients.get(e);
+    return [e, targets[e] ? query[e] ?? null : null, c.status === 'live' && c.storage ? c.storage.root : null];
+  }));
   useEffect(() => {
+    let alive = true; // ответ на устаревший запрос (ввод уже другой) не перетирает свежий
     const t = setTimeout(() => {
       for (const e of envs) {
         const q = query[e];
@@ -84,13 +90,13 @@ export function NewProjectDialog({ clients, envs, initialEnv, onClose, onCreated
         if (!targets[e] || !q || c.status !== 'live' || !c.storage) { setPlans((p) => ({ ...p, [e]: { kind: 'idle' } })); continue; }
         setPlans((p) => ({ ...p, [e]: { kind: 'loading' } }));
         void c.inspectProject(q).then(
-          (plan) => setPlans((p) => ({ ...p, [e]: { kind: 'ok', plan } })),
-          (err: unknown) => setPlans((p) => ({ ...p, [e]: { kind: 'err', text: errText(err) } })),
+          (plan) => { if (alive) setPlans((p) => ({ ...p, [e]: { kind: 'ok', plan } })); },
+          (err: unknown) => { if (alive) setPlans((p) => ({ ...p, [e]: { kind: 'err', text: errText(err) } })); },
         );
       }
     }, 350);
-    return () => clearTimeout(t);
-  }, [query, targets, envs, clients]);
+    return () => { alive = false; clearTimeout(t); };
+  }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const planOk = (e: EnvId) => {
     const st = plans[e];

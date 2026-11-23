@@ -2,7 +2,7 @@
 // ниже — секция на каждую среду (строки по статусу, без заголовков групп), внизу общий архив.
 // Чистые функции без React.
 import type { EnvId, ProjectInfo } from '../supervisor';
-import { groupOf, type GroupId, type SessionLike } from './sessionGroups';
+import { groupOf, orderAt, type GroupId, type SessionLike } from './sessionGroups';
 
 /** Порядок статусов внутри секции среды («ждут» — наверху, в общей группе). */
 const SECTION_ORDER: GroupId[] = ['working', 'ready', 'fresh', 'cold'];
@@ -44,7 +44,7 @@ const norm = (s: string) => s.trim().toLowerCase();
 export function layoutEnvs<T extends SessionLike>(inputs: Array<EnvInput<T>>, filter: EnvFilter = {}): EnvLayout<T> {
   const q = norm(filter.query ?? '');
   const want = typeof filter.project === 'string' ? norm(filter.project) : filter.project;
-  const byRecent = (a: { lastActivity: number }, b: { lastActivity: number }) => b.lastActivity - a.lastActivity;
+  const byRecent = (a: SessionLike, b: SessionLike) => orderAt(b) - orderAt(a);
   const waiting: Array<Tagged<T>> = [];
   const archived: Array<Tagged<T>> = [];
   const sections: Array<EnvSection<T>> = [];
@@ -133,12 +133,12 @@ export function projectGroups<T extends SessionLike & { lastActivity: number }>(
       groups.set(k, g);
     }
     g.rows.push(r);
-    g.latest = Math.max(g.latest, r.s.lastActivity);
+    g.latest = Math.max(g.latest, orderAt(r.s));
   }
   if (opts.includeEmpty) {
     for (const p of projects) if (!groups.has(p.id)) groups.set(p.id, { projectId: p.id, name: p.name, rows: [], latest: 0 });
   }
-  for (const g of groups.values()) g.rows.sort((a, b) => b.s.lastActivity - a.s.lastActivity);
+  for (const g of groups.values()) g.rows.sort((a, b) => orderAt(b.s) - orderAt(a.s));
   return [...groups.values()].sort((a, b) => {
     if ((a.projectId === null) !== (b.projectId === null)) return a.projectId === null ? 1 : -1; // «без проекта» — в конце
     if (b.latest !== a.latest) return b.latest - a.latest;
