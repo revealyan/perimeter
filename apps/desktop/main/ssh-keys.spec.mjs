@@ -88,8 +88,11 @@ describe('пароль → ключ на сервере', () => {
     expect(r.privateKeyPath).toBe(keyFile);
     const ak = join(home, '.ssh', 'authorized_keys');
     expect(readFileSync(ak, 'utf8')).toBe(`${r.publicKey}\n`);
-    expect(statSync(join(home, '.ssh')).mode & 0o777).toBe(0o700);
-    expect(statSync(ak).mode & 0o777).toBe(0o600);
+    // права — у POSIX-сервера (sshd StrictModes); на Windows (CI) их нет — «сервер» здесь эмулируется
+    if (process.platform !== 'win32') {
+      expect(statSync(join(home, '.ssh')).mode & 0o777).toBe(0o700);
+      expect(statSync(ak).mode & 0o777).toBe(0o600);
+    }
     await installKeyWithPassword({ host: '127.0.0.1', port, user: 'root', password: 'secret', keyFile });
     expect(readFileSync(ak, 'utf8').split('\n').filter(Boolean)).toHaveLength(1);
   }, 30_000);
