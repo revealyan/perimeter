@@ -320,6 +320,31 @@ WSS договаривается с клиентом о сжатии permessage-
 - Папка с тем же origin (https/ssh одного репо считаются одним) подключается как есть; занятая чужим — ошибка `PROJECT_PATH`, ничего не трогаем.
 - Токены в URL (`https://user:token@…`) в ответах и логах маскируются (`***@`).
 
+## Git на сервере: пуш в GitHub (ключ VPS)
+
+Сессии на VPS создают проекты и должны пушить их в GitHub — для этого у пользователя службы
+(`yan`) есть ssh-ключ, добавленный в аккаунт владельца GitHub.
+
+**Однократно (сделано 2026-11-23, Velohost):**
+
+```bash
+# на VPS от yan: ключ без passphrase (агентам), github.com уже в known_hosts
+ssh-keygen -t ed25519 -N "" -C "perimeter-velohost" -f ~/.ssh/id_ed25519
+ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+cat ~/.ssh/id_ed25519.pub
+```
+
+Публичный ключ → GitHub → Settings → SSH and GPG keys → New SSH key (имя вроде `perimeter-velohost`).
+Проверка: `sudo -u yan ssh -T git@github.com` → «Hi revealyan!».
+
+**Пуш из сессий:** `git remote add origin git@github.com:revealyan/<repo>.git && git push -u origin main`.
+Репозиторий создаёт владелец в вебе; чтобы агент создавал репо сам — поставить `gh` и авторизовать
+(`gh auth login` под yan), тогда `gh repo create <name> --source=. --push` — пока не сделано.
+
+Безопасность: ключ полный (доступ ко всем репо аккаунта) — компрометация VPS = компрометация GitHub.
+Альтернатива строже — deploy keys на каждый репо (только на один репо), но тогда новый проект требует
+ручной возни в вебе. Позже в Perimeter: страница «Окружение» покажет наличие ключа и `ssh -T`-проверку.
+
 ## Как выкатывали руками (до установщика; прод на RackNerd, 2026-11-10)
 
 С 2026-11-13 — установщик из приложения (раздел 0). Ниже — ручная процедура для сервера без установщика.
