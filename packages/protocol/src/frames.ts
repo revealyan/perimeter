@@ -145,6 +145,10 @@ export const profileInfo = z.object({
   effortFallback: z.boolean().optional(),
   /** окно автокомпакта по умолчанию у сессий аккаунта (токены); нет — как у модели */
   compactWindow: z.number().int().optional(),
+  /** показывать лимиты аккаунта (usage); по умолчанию — где источник есть (подписка Claude, z.ai) */
+  usage: z.boolean().optional(),
+  /** у аккаунта есть источник лимитов (подписка Claude или z.ai) */
+  usageSource: z.enum(['claude', 'zai']).optional(),
   /** ключ API задан: последние символы («…UDPw»); сам ключ клиенту не уходит никогда */
   keyHint: z.string().max(12).optional(),
   /** ключ можно задать из UI (аккаунт через шлюз или с ключом в env); у подписки Claude — нет */
@@ -268,6 +272,13 @@ export const cmdSessionSettings = cmdBase.extend({
  * Модели аккаунта. refresh — спросить у Claude Code заново (supportedModels; для manual-аккаунтов игнорируется).
  * ack: { profile: profileInfo }.
  */
+/** Лимиты аккаунта (usage). refresh — спросить источник заново (иначе — последнее известное). ack: { usage }. */
+export const cmdProfileUsage = cmdBase.extend({
+  type: z.literal('cmd:profile.usage'),
+  profile: z.string().min(1),
+  refresh: z.boolean().optional(),
+});
+
 export const cmdProfileModels = cmdBase.extend({
   type: z.literal('cmd:profile.models'),
   profile: z.string().min(1),
@@ -306,6 +317,8 @@ export const cmdProfileUpdate = cmdBase.extend({
   effortFallback: z.boolean().optional(),
   /** окно автокомпакта по умолчанию у сессий аккаунта; null — убрать */
   compactWindow: z.number().int().min(20_000).max(10_000_000).nullable().optional(),
+  /** показывать лимиты аккаунта */
+  usage: z.boolean().optional(),
   /** новый ключ API аккаунта — только запись (в env профиля); обратно не отдаётся */
   apiKey: z.string().min(8).max(512).regex(/^\S+$/, 'ключ без пробелов').optional(),
 });
@@ -797,6 +810,44 @@ export const eventApiRetry = eventBase.extend({
   error: z.string(),
 });
 
+/** Окно лимита аккаунта (как /usage в Claude Code): сколько использовано, когда сбросится. */
+export const usageWindowSchema = z.object({
+  /** five_hour, seven_day, seven_day_opus, zai:5h… — стабильный ключ */
+  id: z.string(),
+  /** «5 часов», «неделя», «неделя · Opus» */
+  label: z.string(),
+  /** использовано, 0–100 */
+  pct: z.number(),
+  /** когда сбросится (epoch ms) */
+  resetsAt: z.number().optional(),
+  /** allowed / allowed_warning / rejected — если источник сообщает */
+  status: z.string().optional(),
+  /** сколько из скольких (z.ai — кредиты), если известно */
+  used: z.number().optional(),
+  limit: z.number().optional(),
+});
+export type UsageWindow = z.infer<typeof usageWindowSchema>;
+
+export const usageInfoSchema = z.object({
+  /** откуда: claude — лимиты подписки (ответы API / /usage), zai — квота GLM Coding Plan */
+  source: z.enum(['claude', 'zai']),
+  /** тариф, если известен (max, pro, team…) */
+  plan: z.string().optional(),
+  windows: z.array(usageWindowSchema),
+  /** когда получено (epoch ms) */
+  at: z.number(),
+  /** пояснение, когда окон нет (например, «появятся после первого хода») */
+  note: z.string().optional(),
+});
+export type UsageInfo = z.infer<typeof usageInfoSchema>;
+
+/** Лимиты аккаунта обновились (пришли с ответом API в ходе сессии) — всем клиентам; seq 0, мимо ринга. */
+export const eventUsage = eventBase.extend({
+  type: z.literal('event:usage'),
+  profile: z.string(),
+  usage: usageInfoSchema,
+});
+
 /** Профили изменились (правка или обновление моделей) — всем подключённым клиентам; seq 0, мимо ринга. */
 export const eventProfiles = eventBase.extend({
   type: z.literal('event:profiles'),
@@ -946,7 +997,7 @@ export const cmdMcpSharedRemove = cmdBase.extend({ type: z.literal('cmd:mcp.shar
 export const CmdSchema = z.discriminatedUnion('type', [
   cmdHello, cmdSessionList, cmdSessionNew, cmdSessionOpen,
   cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop,
-  cmdSessionSettings, cmdSessionContext, cmdProfileModels, cmdProfileUpdate,
+  cmdSessionSettings, cmdSessionContext, cmdProfileModels, cmdProfileUsage, cmdProfileUpdate,
   cmdProfileAdd, cmdProfileCheck, cmdProfileLoginStart, cmdProfileLoginCode, cmdProfileLoginCancel,
   cmdProfileTokenStart, cmdProfileTokenTake,
   cmdMcpList, cmdMcpAdd, cmdMcpRemove, cmdMcpLoginStart, cmdMcpCatalogSearch,
@@ -965,7 +1016,7 @@ export const EventSchema = z.discriminatedUnion('type', [
   eventStreamDelta, eventMessageUser, eventPermissionRequest, eventPermissionResult,
   eventTurnResult, eventSubagentStart, eventSubagentMessage, eventSubagentStop, eventError,
   eventTermOutput, eventTermExit, eventProfiles, eventApiRetry,
-  eventRbFrame, eventRbState, eventRbExit, eventProfileLogin,
+  eventRbFrame, eventRbState, eventRbExit, eventProfileLogin, eventUsage,
 ]);
 export type Event = z.infer<typeof EventSchema>;
 
@@ -982,13 +1033,13 @@ export const KNOWN_EVENT_TYPES: readonly string[] = [
   'event:turn.result', 'event:subagent.start', 'event:subagent.message', 'event:subagent.stop',
   'event:error',
   'event:term.output', 'event:term.exit', 'event:profiles', 'event:api.retry',
-  'event:rb.frame', 'event:rb.state', 'event:rb.exit', 'event:profile.login',
+  'event:rb.frame', 'event:rb.state', 'event:rb.exit', 'event:profile.login', 'event:usage',
 ] as const;
 
 export const KNOWN_CMD_TYPES: readonly string[] = [
   'cmd:hello', 'cmd:session.list', 'cmd:session.new', 'cmd:session.open',
   'cmd:message.send', 'cmd:permission.respond', 'cmd:interrupt', 'cmd:session.fork', 'cmd:transcript.get',
-  'cmd:session.stop', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.update',
+  'cmd:session.stop', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
   'cmd:profile.add', 'cmd:profile.check', 'cmd:profile.login.start', 'cmd:profile.login.code', 'cmd:profile.login.cancel',
   'cmd:profile.token.start', 'cmd:profile.token.take',
   'cmd:mcp.list', 'cmd:mcp.add', 'cmd:mcp.remove', 'cmd:mcp.login.start', 'cmd:mcp.catalog.search',

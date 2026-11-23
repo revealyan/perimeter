@@ -61,6 +61,11 @@ export type SdkMsg =
       parent_tool_use_id?: string | null;
     }
   | {
+      /** лимиты подписки Claude из заголовков ответа API (rate_limit_info.unifiedWindows) */
+      type: 'rate_limit_event';
+      rate_limit_info?: unknown;
+    }
+  | {
       type: 'result';
       subtype: string;
       result?: string;

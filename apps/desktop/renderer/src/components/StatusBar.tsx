@@ -7,6 +7,7 @@ import { envLabel } from '../supervisor';
 import { ctxView, fmtBytes, fmtCost, fmtDuration, fmtTokens } from '../lib/toolFormat';
 import { changesTotal, fileChanges, sessionCost } from '../lib/feedModel';
 import { tokensLabel } from '../lib/outputLimit';
+import { barWindows, resetIn, shortLabel, usageTone } from '../lib/usageModel';
 import type { PanelTab } from '../lib/panelLayout';
 import { modeLabel } from './SessionHeader';
 import { Icon } from './Icon';
@@ -34,6 +35,13 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
   }, [client, client.status]);
   const fwd = ports.of(env).length;
   const ctx = session ? ctxView(client.contextBySession.get(session.id)) : null;
+  // лимиты аккаунта активной сессии (если у аккаунта включены и известны)
+  const prof = session?.profile ? client.profiles.find((p) => p.name === session.profile) : undefined;
+  const usageOn = prof !== undefined && prof.usageSource !== undefined && prof.usage !== false;
+  useEffect(() => { if (usageOn && prof && client.status === 'live' && !client.usage.has(prof.name)) void client.loadUsage(prof.name); }, [usageOn, prof?.name, client.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const usage = usageOn && prof ? client.usage.get(prof.name)?.usage : undefined;
+  const usageWins = usage ? barWindows(usage.windows) : [];
+  const usageTip = usage ? `Лимиты аккаунта: ${usage.windows.map((w) => `${w.label} — ${Math.round(w.pct)}%${w.resetsAt ? `, сброс ${resetIn(w.resetsAt)}` : ''}`).join('; ')}` : '';
   const ch = session ? changesTotal(fileChanges(session.items)) : null;
   const cost = session ? sessionCost(session) : undefined;
   const ipc = typeof window !== 'undefined' && window.perimeterIPC !== undefined;
@@ -72,6 +80,11 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
           <button className="sb-item" disabled={!live || session.state === 'creating'} data-tip="/compact — агент сожмёт историю в выжимку и освободит контекст (идёт обычным ходом)" onClick={() => client.sendText(session.id, '/compact')}>
             <Icon name="minimize" size={12} /> <span className="dim">сжать</span>
           </button>
+          {usageWins.length > 0 && (
+            <span className="sb-item sb-usage" data-tip={usageTip}>
+              {usageWins.map((w) => <span key={w.id} className={`tone-${usageTone(w.pct)}`}><span className="dim">{shortLabel(w)}</span> {Math.round(w.pct)}%</span>)}
+            </span>
+          )}
           {session.compactWindow !== undefined && (
             <button className="sb-item" onClick={() => onTab('context')} data-tip="Свой автокомпакт сессии: Claude Code сжимает историю у этого окна. Поменять — вкладка «Контекст»">
               <span className="dim">авто</span> {tokensLabel(session.compactWindow)}

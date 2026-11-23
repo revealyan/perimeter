@@ -1,7 +1,8 @@
 // Клиент supervisor'а в рендерере: WSS, реконнект с догоном по lastSeq,
 // дедупликация по seq, живые карточки разрешений, запросы с ответом (ack/err по id).
 
-import { PROTOCOL_VERSION, parseFrame, type CustomModel, type EffortLevel, type Event, type ModelInfoFrame, type StorageInfoFrame } from '@perimeter/protocol';
+import { PROTOCOL_VERSION, parseFrame, type CustomModel, type EffortLevel, type Event, type ModelInfoFrame, type StorageInfoFrame, type UsageInfo } from '@perimeter/protocol';
+export type { UsageInfo, UsageWindow } from '@perimeter/protocol';
 import {
   parseFsList, parseFsRead, parseGitStatus, parseNetPorts, parseTermInfo, parseTermList,
   type FsList, type FsRead, type GitStatus, type PortInfo, type TermInfo,
@@ -135,6 +136,10 @@ export interface ProfileInfo {
   effortFallback?: boolean;
   /** окно автокомпакта по умолчанию у сессий аккаунта */
   compactWindow?: number;
+  /** показывать лимиты (usage) */
+  usage?: boolean;
+  /** у аккаунта есть источник лимитов */
+  usageSource?: 'claude' | 'zai';
   /** ключ API задан — последние символы («…UDPw»); сам ключ в клиент не приходит */
   keyHint?: string;
   /** ключ можно задать из настроек (шлюз вроде z.ai); у подписки Claude — нет */
@@ -308,6 +313,8 @@ export interface ProfilePatch {
   effortFallback?: boolean;
   /** окно автокомпакта по умолчанию; null — убрать */
   compactWindow?: number | null;
+  /** показывать лимиты */
+  usage?: boolean;
 }
 
 /** Поля сессии из кадров сервера (hello / session.list / ack настроек) → вид сессии. */
@@ -439,6 +446,9 @@ export class SupervisorClient {
   lastError = '';
   /** последний снимок контекста по сессии (для кольца правой панели) */
   contextBySession = new Map<string, Record<string, unknown>>();
+  /** лимиты аккаунтов (usage): последнее известное + пояснение, когда данных нет */
+  usage = new Map<string, { usage: UsageInfo | null; note?: string }>();
+  private usageInFlight = new Map<string, Promise<void>>();
 
   /**
    * Среда клиента — id подключения ('local' — этот компьютер, остальные — VPS через свой ssh-туннель).
@@ -1054,6 +1064,25 @@ export class SupervisorClient {
    * Модели аккаунта; refresh — спросить у Claude Code заново (поднимает claude на несколько секунд).
    * Ошибка — исключение с текстом supervisor'а (настройки показывают его у аккаунта).
    */
+  /**
+   * Лимиты аккаунта (usage). Повторный вызов, пока первый идёт, ждёт его же; ошибки молча — лимиты справочные.
+   * refresh — спросить источник заново (иначе supervisor отдаёт свежее минуты из памяти).
+   */
+  loadUsage(profile: string, refresh = false): Promise<void> {
+    const cur = this.usageInFlight.get(profile);
+    if (cur) return cur;
+    const p = this.request({ type: 'cmd:profile.usage', profile, ...(refresh ? { refresh: true } : {}) }, 40_000).then(
+      (r) => {
+        const d = r.data as { usage?: UsageInfo | null; note?: string } | undefined;
+        this.usage.set(profile, { usage: d?.usage ?? null, ...(d?.note ? { note: d.note } : {}) });
+        this.notify();
+      },
+      () => undefined,
+    ).finally(() => { this.usageInFlight.delete(profile); });
+    this.usageInFlight.set(profile, p);
+    return p;
+  }
+
   async profileModels(profile: string, refresh = false): Promise<ProfileInfo> {
     const r = await this.request({ type: 'cmd:profile.models', profile, ...(refresh ? { refresh: true } : {}) }, refresh ? 60_000 : PROFILE_TIMEOUT_MS);
     const p = (r.data as { profile?: ProfileInfo } | undefined)?.profile;
@@ -1439,6 +1468,12 @@ export class SupervisorClient {
     // профили поменялись (правка в настройках, обновление моделей) — у всех клиентов сразу
     if (f.type === 'event:profiles') {
       this.profiles = f.profiles;
+      this.notify();
+      return;
+    }
+    // лимиты аккаунта пришли с ответом API в чьей-то сессии
+    if (f.type === 'event:usage') {
+      this.usage.set(f.profile, { usage: f.usage });
       this.notify();
       return;
     }

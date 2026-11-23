@@ -132,6 +132,8 @@ export class SessionManager {
   private createdHook: ((info: SessionInfo) => void) | null = null;
   /** Куда складывать текст thinking-блоков (ThinkingStore supervisor'а); нет — не храним. */
   thinkingSink: ((signature: string, text: string) => void) | null = null;
+  /** Куда отдавать лимиты подписки из сессий (аккаунт сессии + rate_limit_info) — usage у wss. */
+  rateLimitSink: ((profile: string | undefined, info: unknown) => void) | null = null;
   private readonly idleTimeoutMs: number;
 
   /** idleTimeoutMs > 0: простаивающую сессию останавливаем (dead), сообщение поднимет через resume */
@@ -511,6 +513,7 @@ export class SessionManager {
       factory,
       ...(permissionTimeoutMs !== undefined ? { permissionTimeoutMs } : {}),
       onThinking: (signature, text) => this.thinkingSink?.(signature, text),
+      onRateLimit: (info) => this.rateLimitSink?.(this.sessions.get(sessionId)?.info.profile, info),
       onEvent: (draft) => {
         const cur = this.sessions.get(sessionId);
         if (!cur || cur.engine !== engine) return; // хвост заменённого процесса (смена профиля/respawn)

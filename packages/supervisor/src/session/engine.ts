@@ -30,6 +30,8 @@ export interface EngineOptions {
    * supervisor хранит его сам (ThinkingStore) — лента после ресинка из транскрипта не теряет размышления.
    */
   onThinking?: (signature: string, text: string) => void;
+  /** лимиты подписки (rate_limit_event Claude Code) — supervisor копит их по аккаунту (usage) */
+  onRateLimit?: (info: unknown) => void;
 }
 
 class Deferred<T> {
@@ -267,6 +269,9 @@ export class SessionEngine {
         return;
       case 'result':
         this.handleResult(msg);
+        return;
+      case 'rate_limit_event':
+        this.opts.onRateLimit?.(msg.rate_limit_info);
         return;
     }
   }

@@ -3,7 +3,8 @@
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { SessionManager, type SpawnInfo } from './session/manager.js';
-import { fetchSupportedModels, sdkFactory, thinkingOption } from './session/sdk.js';
+import { fetchSupportedModels, fetchUsageApi, sdkFactory, thinkingOption } from './session/sdk.js';
+import { fetchZaiUsage, usageFromUsageApi } from './usage.js';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
 import { StateStore } from './state-store.js';
 import { ThinkingStore } from './thinkingStore.js';
@@ -200,6 +201,21 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
     forkFactory,
     // модели аккаунта: у провайдера (/v1/models — настоящие id); нет ключа или провайдер не ответил — у Claude Code
     // (временный процесс с env профиля, без сообщения, см. fetchSupportedModels)
+    // лимиты аккаунта: z.ai — квота по ключу; подписка Claude — /usage через Claude Code (без хода, без расхода)
+    usageFetcher: async (name) => {
+      const src = profiles.usageSource(profiles.internal(name));
+      const p = profiles.get(name);
+      if (src === 'zai' && p) {
+        const access = providerAccess(accountEnv(p));
+        if (!access) throw new Error('у аккаунта нет ключа');
+        return fetchZaiUsage(access.baseUrl, access.key);
+      }
+      if (src === 'claude') {
+        const env = applyProfile(profiles.get(profiles.internal(name)), {}).env;
+        return usageFromUsageApi(await fetchUsageApi({ ...(env !== undefined ? { env } : {}), ...(base.cwd !== undefined ? { cwd: base.cwd } : {}) }));
+      }
+      return null;
+    },
     modelsFetcher: async (name) => {
       const p = profiles.get(name);
       const access = p ? providerAccess(accountEnv(p)) : null;

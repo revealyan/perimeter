@@ -187,6 +187,31 @@ export function toModelInfo(m: Pick<ModelInfo, 'value' | 'displayName' | 'suppor
 }
 
 /**
+ * Данные /usage Claude Code (лимиты подписки) без хода: временный query с пустым вводом, как fetchSupportedModels.
+ * API экспериментальный (usage_EXPERIMENTAL_MAY_CHANGE_…): нет метода — undefined. У входа токеном подписки
+ * rate_limits_available=false — тогда лимиты берутся из ответов API в сессиях (rate_limit_event).
+ */
+export async function fetchUsageApi(opts: { env?: Record<string, string>; cwd?: string }, timeoutMs = 30_000): Promise<unknown> {
+  const idle: AsyncIterable<SDKUserMessage> = {
+    [Symbol.asyncIterator]: () => ({ next: () => new Promise<IteratorResult<SDKUserMessage>>(() => undefined) }),
+  };
+  const q = query({ prompt: idle, options: { cwd: opts.cwd ?? homedir(), ...(opts.env !== undefined ? { env: opts.env } : {}) } });
+  const fn = (q as unknown as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (o: { skipBehaviors: boolean }) => Promise<unknown> })
+    .usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    if (!fn) return undefined;
+    return await Promise.race([
+      fn.call(q, { skipBehaviors: true }),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`Claude Code не ответил за ${Math.round(timeoutMs / 1000)} с`)), timeoutMs); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    q.close();
+  }
+}
+
+/**
  * Список моделей аккаунта у самого Claude Code — без сообщения в сессию и без расхода токенов:
  * временный query с пустым потоком ввода, initialize отдаёт модели (проверено на CLI: ~2.5 с, процесс сразу закрывается).
  */

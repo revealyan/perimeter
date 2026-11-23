@@ -22,7 +22,7 @@ const readBody = (req: IncomingMessage): Promise<string> => new Promise((resolve
   req.on('end', () => resolve(s));
 });
 
-export async function startFakeGateway(opts: { reply?: string; /** перед текстом — блок размышлений с подписью */ thinking?: string } = {}): Promise<{ url: string; requests: CapturedRequest[]; close: () => Promise<void> }> {
+export async function startFakeGateway(opts: { reply?: string; /** перед текстом — блок размышлений с подписью */ thinking?: string; /** доп. заголовки ответа /v1/messages (лимиты подписки и т. п.) */ headers?: Record<string, string> } = {}): Promise<{ url: string; requests: CapturedRequest[]; close: () => Promise<void> }> {
   const requests: CapturedRequest[] = [];
   const reply = opts.reply ?? 'ок';
   const srv = createServer(async (req, res) => {
@@ -57,11 +57,11 @@ export async function startFakeGateway(opts: { reply?: string; /** перед т
     const model = String(body['model'] ?? 'fake');
     const usage = { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
     if (!stream) {
-      res.writeHead(200, { 'content-type': 'application/json' });
+      res.writeHead(200, { 'content-type': 'application/json', ...(opts.headers ?? {}) });
       res.end(JSON.stringify({ id, type: 'message', role: 'assistant', model, content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', stop_sequence: null, usage }));
       return;
     }
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...(opts.headers ?? {}) });
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     send('message_start', { type: 'message_start', message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: 1 } } });
     let idx = 0;

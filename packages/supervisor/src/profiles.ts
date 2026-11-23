@@ -17,6 +17,7 @@
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { isZaiHost } from './usage.js';
 import {
   EffortLevelSchema, customModelId, customModelSchema, modelInfoSchema, parseCustomModelId,
   type CustomModel, type EffortLevel, type ModelInfoFrame, type ProfileInfoFrame,
@@ -64,6 +65,8 @@ export interface Profile {
   effortFallback?: boolean;
   /** окно автокомпакта по умолчанию у сессий аккаунта (токены) */
   compactWindow?: number;
+  /** показывать лимиты (usage); по умолчанию — где источник есть */
+  usage?: boolean;
 }
 
 export interface ProfilesFile {
@@ -95,6 +98,7 @@ export interface ProfilePatch {
   effortFallback?: boolean;
   /** окно автокомпакта по умолчанию; null — убрать */
   compactWindow?: number | null;
+  usage?: boolean;
   /** новый ключ API (только запись в env профиля; в логи и клиенту не уходит) */
   apiKey?: string;
 }
@@ -249,6 +253,27 @@ export class ProfileRegistry {
     return this.get(this.external(name))?.tasks ?? true;
   }
 
+  /**
+   * Откуда лимиты аккаунта: z.ai — квота GLM Coding Plan; claude — подписка Claude (вход через браузер или токен
+   * подписки); ключ API Anthropic и прочие шлюзы — лимитов подписки нет.
+   */
+  usageSource(name: string | undefined): 'claude' | 'zai' | undefined {
+    const p = this.get(this.external(name));
+    if (!p) return undefined;
+    if (isZaiHost(gatewayHost(p))) return 'zai';
+    if (isGateway(p)) return undefined;
+    const env = accountEnv(p);
+    if (env['ANTHROPIC_API_KEY'] !== undefined || env['ANTHROPIC_AUTH_TOKEN'] !== undefined) return undefined;
+    return 'claude';
+  }
+
+  /** Показывать ли лимиты аккаунта: явная настройка, иначе — если источник есть. */
+  usageShown(name: string | undefined): boolean {
+    const src = this.usageSource(name);
+    if (src === undefined) return false;
+    return this.get(this.external(name))?.usage ?? true;
+  }
+
   /** Стандартные уровни усилия моделям без сведений; по умолчанию — у шлюзов. */
   effortFallback(name: string | undefined): boolean {
     const p = this.get(this.external(name));
@@ -355,6 +380,7 @@ export class ProfileRegistry {
       tasks: this.tasksAllowed(name),
       effortFallback: this.effortFallback(name),
       ...(p.compactWindow !== undefined ? { compactWindow: p.compactWindow } : {}),
+      ...(this.usageSource(name) !== undefined ? { usageSource: this.usageSource(name)!, usage: this.usageShown(name) } : {}),
       ...(keyHint(p) !== undefined ? { keyHint: keyHint(p)! } : {}),
       keyEditable: keyEditable(p),
       ...(gatewayHost(p) ? { gatewayHost: gatewayHost(p)! } : {}),
@@ -482,6 +508,7 @@ export class ProfileRegistry {
       }
       if (patch.tasks !== undefined) r['tasks'] = patch.tasks;
       if (patch.effortFallback !== undefined) r['effortFallback'] = patch.effortFallback;
+      if (patch.usage !== undefined) r['usage'] = patch.usage;
     };
 
     let entry: Record<string, unknown>;
@@ -683,6 +710,7 @@ function normalizeProfile(raw: unknown): Profile | null {
     ...(typeof r['tasks'] === 'boolean' ? { tasks: r['tasks'] } : {}),
     ...(typeof r['effortFallback'] === 'boolean' ? { effortFallback: r['effortFallback'] } : {}),
     ...(typeof r['compactWindow'] === 'number' && Number.isInteger(r['compactWindow']) && r['compactWindow'] >= 20_000 ? { compactWindow: r['compactWindow'] } : {}),
+    ...(typeof r['usage'] === 'boolean' ? { usage: r['usage'] } : {}),
   };
 }
 

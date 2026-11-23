@@ -377,6 +377,20 @@ const server = new WssServer(manager, {
   port, host: '127.0.0.1', profiles, projects, git: demoGit,
   sessionFactory: (sess, id) => scriptedFactory(sess, id),
   modelsFetcher: async (name) => { await sleep(400); return { models: name === 'zai' ? demoGlm : demoModels, from: 'provider' as const }; },
+  // лимиты стенда: z.ai — квота в кредитах, подписка — окна 5 часов и неделя (как из ответов API)
+  usageFetcher: async (name) => {
+    await sleep(300);
+    const now = Date.now();
+    if (name === 'zai') return { source: 'zai' as const, plan: 'max', at: now, windows: [
+      { id: 'zai:5h', label: '5 часов', pct: 2, used: 780, limit: 28000, resetsAt: now + 3.2 * 3_600_000 },
+      { id: 'zai:7d', label: 'неделя', pct: 25, used: 35455, limit: 140000, resetsAt: now + 4 * 86_400_000 },
+    ] };
+    return { source: 'claude' as const, plan: 'max', at: now, windows: [
+      { id: 'five_hour', label: '5 часов', pct: 42, resetsAt: now + 2.4 * 3_600_000 },
+      { id: 'seven_day', label: 'неделя', pct: 81, resetsAt: now + 3 * 86_400_000 },
+      { id: 'seven_day_opus', label: 'неделя · Opus', pct: 93, resetsAt: now + 3 * 86_400_000 },
+    ] };
+  },
   // аккаунты из UI на стенде: вход — поддельный Claude Code (scripts/fake-claude.mjs; верный код goodcode#st1 —
   // перейдите во вкладке входа на https://platform.claude.com/oauth/code/callback?code=goodcode&state=st1),
   // проверка ключа — без сети: ключ со словом good — рабочий, иначе 429 · 1113 / 401

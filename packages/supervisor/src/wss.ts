@@ -8,7 +8,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { carryTranscript, readTranscriptItems, retargetTranscript, transcriptPath, writeTranscript } from './transcript.js';
 import type { ThinkingStore } from './thinkingStore.js';
-import { KEY_TEMPLATES, ProfileRegistry, accountEnv, explicitConfigDir, gatewayModels, keyVar, profileConfigDir, profileFromTemplate, usesKey, usesSubToken, type ModelsFrom, type Profile } from './profiles.js';
+import { usageFromRateLimit } from './usage.js';
+import { BASE_PROFILE, KEY_TEMPLATES, ProfileRegistry, accountEnv, explicitConfigDir, gatewayModels, keyVar, profileConfigDir, profileFromTemplate, usesKey, usesSubToken, type ModelsFrom, type Profile } from './profiles.js';
 import { ACCOUNT_KEY_MARK, globalConfigFile, mcpAdd, mcpList, mcpRemove, mergeMcp, readUserMcp, validateMcp, withAccountKey, type McpConfig, type McpDeps, type McpServerInfo, type McpStatus } from './mcp.js';
 import { McpSharedStore, ZAI_KEY_HOST, ZAI_MCP_PRESET, accountKeyOf, configFor, gatewayHostOf, isZaiGateway, rekeyConfig, templateOf, toMcpConfig, type StoredMcp } from './mcpShared.js';
 import { searchCatalog, type CatalogDeps } from './mcpCatalog.js';
@@ -23,7 +24,7 @@ import { PanelError, PanelService, type ListenPort, type PanelCmd, type TermSubs
 import { RemoteBrowserManager, type RbSubscriber } from './panels/rbrowser.js';
 import {
   EventSchema, PROTOCOL_VERSION, parseFrame,
-  type Cmd, type EffortLevel, type Event, type Frame, type ModelInfoFrame, type Reply,
+  type Cmd, type EffortLevel, type Event, type Frame, type ModelInfoFrame, type Reply, type UsageInfo,
 } from '@perimeter/protocol';
 import type { SessionManager, SessionCreateOptions, SessionInfo } from './session/manager.js';
 import { RingBuffer } from './ringbuffer.js';
@@ -48,6 +49,11 @@ export interface WssOptions {
    */
   /** список моделей аккаунта; массив — от Claude Code (старый вид), объект — с указанием, кто отдал */
   modelsFetcher?: (profile: string) => Promise<ModelInfoFrame[] | { models: ModelInfoFrame[]; from: ModelsFrom }>;
+  /**
+   * Лимиты аккаунта у источника (z.ai — квота; подписка Claude — /usage через Claude Code, если доступен).
+   * null — источник не ответил лимитами (тогда — последние из ответов API в сессиях).
+   */
+  usageFetcher?: (profile: string) => Promise<UsageInfo | null>;
   /** фабрики жизненного цикла: респаун через resume и форк истории */
   resumeFactory?: SessionCreateOptions['resumeFactory'];
   forkFactory?: SessionCreateOptions['forkFactory'];
@@ -153,6 +159,9 @@ export class WssServer {
   private readonly projects: ProjectStore | null;
   private readonly pool: PoolLike | null;
   private readonly modelsFetcher: WssOptions['modelsFetcher'];
+  private readonly usageFetcher: WssOptions['usageFetcher'];
+  /** последние известные лимиты по аккаунту (внутреннее имя; '' — аккаунт supervisor'а) */
+  private readonly usage = new Map<string, UsageInfo>();
   private readonly git: GitRunner;
   /** идущие запросы списка моделей по аккаунту — не плодим процессы claude на двойной клик */
   private modelsInflight = new Map<string, Promise<void>>();
@@ -194,6 +203,14 @@ export class WssServer {
     this.projects = opts.projects ?? null;
     this.pool = opts.pool ?? null;
     this.modelsFetcher = opts.modelsFetcher;
+    this.usageFetcher = opts.usageFetcher;
+    // лимиты подписки приходят с ответами API в сессиях (rate_limit_event) — копим и рассылаем клиентам
+    this.manager.rateLimitSink = (profile, info) => {
+      const u = usageFromRateLimit(info);
+      if (!u) return;
+      this.usage.set(profile ?? '', u);
+      this.broadcastUsage(profile, u);
+    };
     this.git = opts.git ?? realGit;
     this.rbrowser = opts.rbrowser ?? new RemoteBrowserManager();
     this.compress = opts.compress !== false;
@@ -586,6 +603,42 @@ export class WssServer {
         this.sendReply(ws, this.ack(f.id, { profile: this.profiles.info(f.profile) }));
         return;
       }
+      case 'cmd:profile.usage': {
+        if (!this.profiles.get(f.profile)) {
+          this.sendReply(ws, this.err(f.id, 'UNKNOWN_PROFILE', `профиля «${f.profile}» нет`));
+          return;
+        }
+        const internal = this.profiles.internal(f.profile);
+        const key = internal ?? '';
+        const source = this.profiles.usageSource(internal);
+        if (source === undefined) {
+          this.sendReply(ws, this.ack(f.id, { usage: null, note: 'у этого аккаунта нет лимитов подписки (ключ API или шлюз без квоты)' }));
+          return;
+        }
+        const known = this.usage.get(key);
+        // свежее минуты — не дёргаем источник без просьбы
+        if (known && f.refresh !== true && Date.now() - known.at < 60_000) {
+          this.sendReply(ws, this.ack(f.id, { usage: known }));
+          return;
+        }
+        void (async () => {
+          let got: UsageInfo | null = null;
+          let err = '';
+          if (this.usageFetcher) {
+            try { got = await this.usageFetcher(f.profile); } catch (e) { err = String((e as Error)?.message ?? e).slice(0, 200); }
+          }
+          if (got) {
+            this.usage.set(key, got);
+            this.broadcastUsage(internal, got);
+          }
+          const out = got ?? known ?? null;
+          const note = out ? undefined : source === 'claude'
+            ? 'Лимиты появятся после первого хода в сессии этого аккаунта: Claude Code узнаёт их из ответов API'
+            : `z.ai не ответил лимитами${err ? `: ${err}` : ''}`;
+          this.sendReply(ws, this.ack(f.id, { usage: out, ...(note ? { note } : {}) }));
+        })();
+        return;
+      }
       case 'cmd:profile.update': {
         if (!this.profiles.get(f.profile)) {
           this.sendReply(ws, this.err(f.id, 'UNKNOWN_PROFILE', `профиля «${f.profile}» нет`));
@@ -618,6 +671,7 @@ export class WssServer {
             ...(f.tasks !== undefined ? { tasks: f.tasks } : {}),
             ...(f.effortFallback !== undefined ? { effortFallback: f.effortFallback } : {}),
             ...(f.compactWindow !== undefined ? { compactWindow: f.compactWindow } : {}),
+            ...(f.usage !== undefined ? { usage: f.usage } : {}),
             ...(f.apiKey !== undefined ? { apiKey: f.apiKey } : {}),
           });
         } catch (err) {
@@ -1785,6 +1839,13 @@ export class WssServer {
     } catch (err) {
       console.log(`[mcp] ${name}: общие MCP не розданы — ${String((err as Error)?.message ?? err)}`);
     }
+  }
+
+  /** Лимиты аккаунта — всем клиентам (seq 0, мимо ринга). */
+  private broadcastUsage(profile: string | undefined, usage: UsageInfo): void {
+    const name = this.profiles.external(profile) ?? BASE_PROFILE;
+    const frame = EventSchema.parse({ v: PROTOCOL_VERSION, ts: Date.now(), seq: 0, type: 'event:usage', profile: name, usage });
+    this.broadcast(frame);
   }
 
   private broadcastProfiles(): void {

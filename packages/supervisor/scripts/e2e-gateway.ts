@@ -24,7 +24,13 @@ const { startSupervisor } = await import('../src/supervisor.js');
 const { startFakeGateway } = await import('./fake-gateway.js');
 
 const home = process.env['PERIMETER_E2E_HOME']!;
-const gw = await startFakeGateway({ thinking: 'думаю над ответом' });
+const nowSec = Math.floor(Date.now() / 1000);
+// заголовки лимитов подписки, как у api.anthropic.com: Claude Code (вход токеном подписки) шлёт по ним rate_limit_event
+const gw = await startFakeGateway({ thinking: 'думаю над ответом', headers: {
+  'anthropic-ratelimit-unified-status': 'allowed', 'anthropic-ratelimit-unified-representative-claim': 'five_hour', 'anthropic-ratelimit-unified-reset': String(nowSec + 3600),
+  'anthropic-ratelimit-unified-5h-status': 'allowed', 'anthropic-ratelimit-unified-5h-utilization': '0.42', 'anthropic-ratelimit-unified-5h-reset': String(nowSec + 3600),
+  'anthropic-ratelimit-unified-7d-status': 'allowed', 'anthropic-ratelimit-unified-7d-utilization': '0.17', 'anthropic-ratelimit-unified-7d-reset': String(nowSec + 86400),
+} });
 const dir = join(home, '.perimeter');
 const proj = join(home, 'proj');
 mkdirSync(dir, { recursive: true });
@@ -32,6 +38,9 @@ mkdirSync(proj, { recursive: true });
 writeFileSync(join(dir, 'profiles.json'), JSON.stringify({ version: 1, profiles: [
   { name: 'gw', env: { ANTHROPIC_BASE_URL: gw.url, ANTHROPIC_AUTH_TOKEN: 'fake', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
     modelsSource: 'manual', models: [{ id: 'glm-5.4', efforts: [] }], maxOutput: 64000, maxOutputHigh: 128000 },
+  // «подписка» — токен подписки (как claude setup-token), API — тот же подставной шлюз
+  { name: 'sub', env: { ANTHROPIC_BASE_URL: gw.url, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
+    modelsSource: 'manual', models: [{ id: 'claude-sonnet-5-5', efforts: [] }] },
 ] }));
 
 const sup = await startSupervisor({
@@ -102,6 +111,15 @@ try {
   await turn(sid2, 'окно 2');
   const ctx2 = ((await cmd({ type: 'cmd:session.context', sessionId: sid2 }))['data'] as Record<string, unknown>)['maxTokens'];
   check('автокомпакт на сессию: 400K на старте, 600K после смены между ходами', ctx1 === 400_000 && ctx2 === 600_000, `окно ${String(ctx1)} → ${String(ctx2)}`);
+
+  // лимиты подписки: настоящий Claude Code по заголовкам ответа → rate_limit_event → event:usage клиенту
+  const c3 = await cmd({ type: 'cmd:session.new', profile: 'sub', model: 'claude-sonnet-5-5', cwd: proj });
+  const sid3 = String(((c3['data'] as Record<string, unknown>)['sessionId'] ?? (c3['data'] as { session?: { id?: string } }).session?.id));
+  const usageEv = waitFor((f) => f.type === 'event:usage' && f['profile'] === 'sub', 60_000);
+  await turn(sid3, 'лимиты');
+  const ue = await usageEv.catch(() => null);
+  const wins = ((ue?.['usage'] as { windows?: Array<{ id: string; pct: number }> } | undefined)?.windows ?? []).map((w) => `${w.id}:${w.pct}`);
+  check('лимиты подписки из ответов API доходят до клиента (event:usage)', JSON.stringify(wins) === JSON.stringify(['five_hour:42', 'seven_day:17']), JSON.stringify(wins));
 
   // размышления: что записал Claude Code в транскрипт, и что отдаёт supervisor
   const projects = join(home, '.claude', 'projects');

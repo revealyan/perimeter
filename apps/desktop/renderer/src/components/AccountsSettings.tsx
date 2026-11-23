@@ -7,6 +7,7 @@ import type { EnvId, ProfileInfo, SupervisorClient, ClientSet } from '../supervi
 import { CmdError, envLabel, profileLabel } from '../supervisor';
 import { highOptions, normalOptions } from '../lib/outputLimit';
 import { compactOptions } from '../lib/compactWindow';
+import { UsageBars } from './UsageBars';
 import { EFFORT_LABEL, EFFORT_ORDER, addCustomModel, addManualModel, baseModelId, ctxLabel, customLabel, effortRange, findModel, type EffortLevel, type ModelChoice } from '../lib/modelsModel';
 import { hiddenModels, setModelHidden, subscribeHidden } from '../lib/modelVisibility';
 import { Icon } from './Icon';
@@ -266,7 +267,16 @@ function AccountCard({ p, client, env, onLogin, open, onToggle }: {
           {compactOptions(p.compactWindow).map((o) => <option key={o.label} value={o.value ?? ''}>{o.label}</option>)}
         </select>
       </div>
-      <div className="dim acct-note">Когда контекст подходит к этому окну, Claude Code сжимает историю. Для моделей с окном 1M (glm) — 400–600K, чтобы сессия не жгла лимиты на огромном контексте. У сессии можно задать своё — в строке статуса («авто»).</div>
+      <div className="dim acct-note">Когда контекст подходит к этому окну, Claude Code сжимает историю. Для моделей с окном 1M (glm) — 400–600K, чтобы сессия не жгла лимиты на огромном контексте. У сессии можно задать своё — во вкладке «Контекст».</div>
+      {p.usageSource !== undefined && (
+        <>
+          <label className="acct-row acct-check">
+            <input type="checkbox" checked={p.usage !== false} disabled={busy !== ''} onChange={(e) => void save({ usage: e.target.checked })} />
+            <span>лимиты — {p.usageSource === 'zai' ? 'квота GLM Coding Plan (z.ai)' : 'окна подписки Claude: 5 часов и неделя'}; в строке статуса у сессий аккаунта</span>
+          </label>
+          {p.usage !== false && <UsageBars client={client} profile={p.name} />}
+        </>
+      )}
       {p.keyEditable && <KeyRow p={p} client={client} />}
       <label className="acct-row acct-check">
         <input type="checkbox" checked={p.tasks !== false} disabled={busy !== ''} onChange={(e) => void save({ tasks: e.target.checked })} />
