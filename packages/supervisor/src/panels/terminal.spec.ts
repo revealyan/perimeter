@@ -12,6 +12,8 @@ import { LineDiscipline, loadNodePty, psLine, TerminalManager, TextRing, type Te
 const SID = '11111111-1111-4111-8111-111111111111';
 const OTHER_SID = '22222222-2222-4222-8222-222222222222';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Windows-раннер CI: PowerShell в режиме pipe иногда стартует дольше 20 с (23.11 — v0.2.1 упал на «hi в выводе») */
+const SLOW = process.platform === 'win32' ? 3 : 1;
 
 async function until(pred: () => boolean, ms = 15_000, what = 'условие'): Promise<void> {
   const deadline = Date.now() + ms;
@@ -90,7 +92,7 @@ describe('терминал: режим pipe', () => {
 
     await ready(a); // человек печатает после приглашения — иначе «hi» встанет за приглашением, а не с начала строки
     m.input(t.termId, 'echo hi\r', SID);
-    await until(() => HI_LINE.test(a.out(t.termId)), 20_000, 'hi в выводе');
+    await until(() => HI_LINE.test(a.out(t.termId)), 20_000 * SLOW, 'hi в выводе');
     // эхо набора делает supervisor (дисциплина линии), шелл сам не эхоит
     expect(a.out(t.termId)).toContain('echo hi\r\n');
 
@@ -102,7 +104,7 @@ describe('терминал: режим pipe', () => {
       expect(f.sessionId).toBeUndefined();
     }
     await until(() => m.size === 0, 5000, 'запись удалена');
-  }, 40_000);
+  }, 40_000 * SLOW);
 
   it('адресность: второй подписчик без attach ничего не получает; attach отдаёт scrollback, дальше — оба', async () => {
     const root = tmp();
