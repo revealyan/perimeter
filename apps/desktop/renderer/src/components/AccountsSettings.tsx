@@ -7,7 +7,7 @@ import type { EnvId, ProfileInfo, SupervisorClient, ClientSet } from '../supervi
 import { CmdError, envLabel, profileLabel } from '../supervisor';
 import { highOptions, normalOptions } from '../lib/outputLimit';
 import { compactOptions } from '../lib/compactWindow';
-import { UsageBars } from './UsageBars';
+import { UsageBars, UsageMini } from './UsageBars';
 import { EFFORT_LABEL, EFFORT_ORDER, addCustomModel, addManualModel, baseModelId, ctxLabel, customLabel, effortRange, findModel, type EffortLevel, type ModelChoice } from '../lib/modelsModel';
 import { hiddenModels, setModelHidden, subscribeHidden } from '../lib/modelVisibility';
 import { Icon } from './Icon';
@@ -175,6 +175,7 @@ function AccountCard({ p, client, env, onLogin, open, onToggle }: {
           <button className="acct-login" onClick={() => onLogin(p)} data-tip="Войти в подписку Claude прямо в браузере на сервере">не вошёл · Войти</button>
         )}
         <span className="spacer" />
+        {p.usageSource !== undefined && p.usage !== false && <UsageMini client={client} profile={p.name} />}
         {!open && <span className="dim acct-sum">{summary}</span>}
         <span className="acct-src" data-tip={p.modelsFrom === 'claude-code' ? 'Провайдер не отдал список (или ключа нет — подписка) — взят список самого Claude Code' : undefined}>{source}</span>
         {open && !manual && (

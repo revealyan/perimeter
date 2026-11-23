@@ -1350,9 +1350,17 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .usage-pct { text-align: right; }
 .usage-foot { display: flex; gap: 12px; align-items: center; font-size: var(--fs-sm); }
 .usage-foot .link-btn { display: inline-flex; align-items: center; gap: 4px; }
-.sb-usage { gap: 8px; }
-.sb-usage .tone-warn { color: var(--warn); }
-.sb-usage .tone-err { color: var(--err); }
+.sb-usage { gap: 10px; }
+.sb-usage-w { display: inline-flex; align-items: center; gap: 5px; }
+.sb-usage-w .sb-meter { width: 28px; }
+.sb-meter.ok span { background: var(--ok); }
+.sb-usage .tone-warn .sb-usage-pct { color: var(--warn); }
+.sb-usage .tone-err .sb-usage-pct { color: var(--err); }
 /* новый сервер по паролю: переключатель способа входа и пометка «пароль не сохраняем» */
 .conn-auth { margin: 4px 0 2px; }
 .conn-pass-note { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; padding: 8px 10px; border-radius: var(--radius); background: var(--info-soft); color: var(--fg); font-size: var(--fs-sm); line-height: 1.45; }
+.usage-mini { display: inline-flex; gap: 12px; align-items: center; font-size: var(--fs-sm); }
+.usage-mini-w { display: inline-flex; gap: 5px; align-items: center; }
+.usage-mini .usage-bar { width: 40px; }
+.usage-mini .tone-warn .mono { color: var(--warn); }
+.usage-mini .tone-err .mono { color: var(--err); }

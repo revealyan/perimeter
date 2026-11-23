@@ -10,6 +10,7 @@ import { ConnectionManager, migrateClientDir, validateInput } from './connection
 import { ServerInstaller } from './server-install.mjs';
 import { ensureLocalServer, localSupervisorEnv } from './local-server.mjs';
 import { installKeyWithPassword } from './ssh-keys.mjs';
+import { LocalSupervisor } from './local-sup.mjs';
 
 // имя приложения (профиль %APPDATA%/Perimeter вместо scoped-имени пакета «@perimeter/desktop»)
 app.setName('Perimeter');
@@ -31,20 +32,14 @@ const devUrl = process.env.PERIMETER_DEV_URL ?? 'http://localhost:5173';
   }
 }
 
-// Локальный supervisor (среда «Этот компьютер»): клиент сам поднимает его на :8791.
-let localSup = null;
-let localSupStatus = 'не запущен';
-let localSupLastErr = '';
-
+// Локальный supervisor (среда «Этот компьютер»): клиент сам поднимает его на :8791 (local-sup.mjs — один запуск за раз).
 function setLocalStatus(s) {
-  localSupStatus = s;
   if (win && !win.isDestroyed()) win.webContents.send('perimeter:local-sup-status', s);
 }
 
-/** Поднять процесс supervisor'а (аргументы и env уже собраны под режим). */
-function spawnSupervisor(args, cwd, extraEnv) {
-  // process.execPath в Electron — сам electron.exe: без ELECTRON_RUN_AS_NODE он поднимет второе окно приложения, а не Node
-  localSup = spawn(process.execPath, args, {
+/** Процесс supervisor'а: process.execPath в Electron — сам electron.exe, без ELECTRON_RUN_AS_NODE он поднимет второе окно. */
+function spawnProc(args, cwd, extraEnv) {
+  return spawn(process.execPath, args, {
     cwd,
     env: {
       ...process.env,
@@ -57,62 +52,47 @@ function spawnSupervisor(args, cwd, extraEnv) {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
-  localSupLastErr = '';
-  localSup.stdout?.on('data', (d) => {
-    const line = String(d).trim();
-    if (line.includes('ws://')) setLocalStatus('запущен');
-  });
-  // stderr — не обязательно ошибка (предупреждения Node); показываем только при падении
-  localSup.stderr?.on('data', (d) => { localSupLastErr = String(d).trim().split(/\r?\n/).pop()?.slice(0, 160) ?? ''; });
-  localSup.on('error', (err) => { localSup = null; setLocalStatus(`ошибка запуска: ${String(err.message).slice(0, 120)}`); });
-  localSup.on('exit', (code) => {
-    localSup = null;
-    setLocalStatus(code === 0 || code === null ? 'остановлен' : `упал (код ${code})${localSupLastErr ? `: ${localSupLastErr}` : ''}`);
-  });
-  setLocalStatus('запускается…');
+}
+
+/** Остановить вместе с дочерними процессами claude: на Windows kill() не доставляет SIGTERM и оставляет сирот. */
+function killTree(child) {
+  const pid = child.pid;
+  if (process.platform === 'win32' && pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
+  else child.kill('SIGTERM');
 }
 
 /** Установка packaged-локального supervisor (докачка движка) — один промис на все вызовы. */
 let localSupInstall = null;
 
-async function startLocalSupervisor() {
-  if (localSup) return localSupStatus;
+/** Что запускать: packaged — бандл из resources и движок в профиле (докачка один раз на версию); dev — исходники. */
+async function prepareLocal(onStatus) {
   if (app.isPackaged) {
-    // packaged: бандл в resources, нативные пакеты — в профиль пользователя (один раз на версию)
     if (!localSupInstall) {
       localSupInstall = ensureLocalServer({
         bundleDir: join(process.resourcesPath, 'app-supervisor'),
         installRoot: join(app.getPath('userData'), 'local-server'),
-        onStatus: setLocalStatus,
+        onStatus,
       }).catch((e) => { localSupInstall = null; throw e; });
     }
-    let inst;
-    try { inst = await localSupInstall; }
-    catch (e) { setLocalStatus(`движок не установился: ${String(e.message).slice(0, 140)}`); return localSupStatus; }
-    setLocalStatus('запускается…');
-    spawnSupervisor([join(inst.dir, 'supervisor.mjs')], inst.dir, localSupervisorEnv({ app, installDir: inst.dir }));
-    return localSupStatus;
+    const inst = await localSupInstall;
+    return { args: [join(inst.dir, 'supervisor.mjs')], cwd: inst.dir, env: localSupervisorEnv({ app, installDir: inst.dir }) };
   }
   // dev: из исходников репозитория (tsx), состояние рядом с репо
   const repoRoot = join(import.meta.dirname, '..', '..', '..');
-  spawnSupervisor(['--import', 'tsx', 'packages/supervisor/src/main.ts'], repoRoot, {
-    PERIMETER_STATE: join(repoRoot, '.local-state.json'),
-    // хранилище проектов этого компьютера: по умолчанию — папка рядом с репозиторием (у владельца это C:/devs/revealyan)
-    PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? dirname(repoRoot),
-  });
-  return localSupStatus;
+  return {
+    args: ['--import', 'tsx', 'packages/supervisor/src/main.ts'],
+    cwd: repoRoot,
+    env: {
+      PERIMETER_STATE: join(repoRoot, '.local-state.json'),
+      // хранилище проектов этого компьютера: по умолчанию — папка рядом с репозиторием (у владельца это C:/devs/revealyan)
+      PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? dirname(repoRoot),
+    },
+  };
 }
 
-/** Остановить локальный supervisor вместе с дочерними процессами claude. */
-function stopLocalSupervisor() {
-  if (!localSup) return;
-  const pid = localSup.pid;
-  // на Windows kill() не доставляет SIGTERM и оставляет сиротами процессы claude — гасим всё дерево
-  if (process.platform === 'win32' && pid) spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true });
-  else localSup.kill('SIGTERM');
-  localSup = null;
-  setLocalStatus('остановлен');
-}
+const localSup = new LocalSupervisor({ prepare: prepareLocal, spawnProc, killTree, onStatus: setLocalStatus });
+const startLocalSupervisor = () => localSup.start();
+const stopLocalSupervisor = () => localSup.stop();
 
 let win = null;
 /** сырой статус первого подключения — для старого onTunnelStatus ('up' | 'connecting' | 'down' | текст ошибки) */
@@ -163,7 +143,7 @@ function createWindow() {
   else win.loadURL(devUrl);
   win.webContents.on('did-finish-load', () => {
     send('perimeter:tunnel-status', tunnelStatus);
-    setLocalStatus(localSupStatus);
+    setLocalStatus(localSup.status);
     send('perimeter:connections', conns.list());
     send('perimeter:forwards', conns.forwards());
   });
@@ -181,7 +161,7 @@ ipcMain.handle('perimeter:set-auto-launch', (_e, enabled) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled) });
   return app.getLoginItemSettings().openAtLogin;
 });
-ipcMain.handle('perimeter:local-supervisor', () => localSupStatus);
+ipcMain.handle('perimeter:local-supervisor', () => localSup.status);
 ipcMain.handle('perimeter:start-local-supervisor', () => startLocalSupervisor());
 ipcMain.handle('perimeter:stop-local-supervisor', () => { stopLocalSupervisor(); return 'остановлен'; });
 // выбор папки на этой машине (привязка проекта в среде «Этот компьютер»)

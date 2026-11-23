@@ -166,8 +166,13 @@ export default function App() {
       if (c.enabled) cl.ensureConnected(); else cl.close();
     }
     for (const id of clients.ids()) if (!connections.get(id)) clients.drop(id);
-    if (connections.get(LOCAL)?.enabled) void window.perimeterIPC?.startLocalSupervisor().catch(() => undefined);
   }, [clients, connections.list]);
+  // локальный supervisor — только когда среду включили (и при старте окна), а не на каждое изменение списка: статус
+  // локального supervisor'а тоже меняет список, и просьбы «запустить» шли на каждый мегабайт докачки (23.11)
+  const localOn = connections.get(LOCAL)?.enabled === true;
+  useEffect(() => {
+    if (localOn) void window.perimeterIPC?.startLocalSupervisor().catch(() => undefined);
+  }, [localOn]);
   useEffect(() => () => { for (const c of clients.all()) c.close(); }, [clients]);
 
   useEffect(() => {

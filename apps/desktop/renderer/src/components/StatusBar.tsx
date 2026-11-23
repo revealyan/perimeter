@@ -82,7 +82,13 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
           </button>
           {usageWins.length > 0 && (
             <span className="sb-item sb-usage" data-tip={usageTip}>
-              {usageWins.map((w) => <span key={w.id} className={`tone-${usageTone(w.pct)}`}><span className="dim">{shortLabel(w)}</span> {Math.round(w.pct)}%</span>)}
+              {usageWins.map((w) => (
+                <span key={w.id} className={`sb-usage-w tone-${usageTone(w.pct)}`}>
+                  <span className="dim">{shortLabel(w)}</span>
+                  <span className={`sb-meter ${w.pct >= 90 ? 'hot' : w.pct >= 75 ? 'warm' : 'ok'}`} style={{ '--p': Math.min(100, w.pct) } as CSSProperties}><span /></span>
+                  <span className="sb-usage-pct">{Math.round(w.pct)}%</span>
+                </span>
+              ))}
             </span>
           )}
           {session.compactWindow !== undefined && (
