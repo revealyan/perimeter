@@ -126,6 +126,8 @@ export class SessionManager {
   private subscribers = new Set<Subscriber>();
   private persistHook: (() => void) | null = null;
   private createdHook: ((info: SessionInfo) => void) | null = null;
+  /** Куда складывать текст thinking-блоков (ThinkingStore supervisor'а); нет — не храним. */
+  thinkingSink: ((signature: string, text: string) => void) | null = null;
   private readonly idleTimeoutMs: number;
 
   /** idleTimeoutMs > 0: простаивающую сессию останавливаем (dead), сообщение поднимет через resume */
@@ -493,6 +495,7 @@ export class SessionManager {
     const engine: SessionEngine = new SessionEngine({
       factory,
       ...(permissionTimeoutMs !== undefined ? { permissionTimeoutMs } : {}),
+      onThinking: (signature, text) => this.thinkingSink?.(signature, text),
       onEvent: (draft) => {
         const cur = this.sessions.get(sessionId);
         if (!cur || cur.engine !== engine) return; // хвост заменённого процесса (смена профиля/respawn)

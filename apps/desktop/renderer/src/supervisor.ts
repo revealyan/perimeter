@@ -1573,7 +1573,7 @@ export class SupervisorClient {
         delete s.retry; // модель ответила — повторы позади
         const b = e.block;
         if (b.type === 'text') s.items.push({ id: `i${e.seq}`, kind: 'text', data: { text: b.text }, ts: e.ts });
-        else if (b.type === 'thinking') s.items.push({ id: `i${e.seq}`, kind: 'thinking', data: { text: b.thinking }, ts: e.ts });
+        else if (b.type === 'thinking') { if (b.thinking) s.items.push({ id: `i${e.seq}`, kind: 'thinking', data: { text: b.thinking }, ts: e.ts }); } // пустое (скрытое) — не показываем
         else s.items.push({ id: `i${e.seq}`, kind: 'tool-use', data: { id: b.id, name: b.name, input: b.input, result: undefined, isError: false, done: false }, ts: e.ts });
         break;
       }

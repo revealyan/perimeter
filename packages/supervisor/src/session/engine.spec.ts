@@ -32,6 +32,29 @@ function managerWith(script: (hooks: EngineHooks, fake: Fake) => AsyncGenerator<
 }
 
 describe('engine+manager: маппинг SDK → протокол', () => {
+  it('thinking: текст с подписью уходит в журнал (транскрипт его не хранит); пустой — добирается из дельт потока', async () => {
+    const { m, events, factory } = managerWith(async function* () {
+      yield { type: 'system', subtype: 'init', tools: [], mcp_servers: [], model: 'claude-opus-5-5', permissionMode: 'default' };
+      yield { type: 'assistant', message: { id: 'm1', content: [{ type: 'thinking', thinking: 'полный текст', signature: 'SIG-1' }] } };
+      // текста в итоговом блоке нет — только дельты потока
+      yield { type: 'stream_event', event: { type: 'content_block_start', content_block: { type: 'thinking' } } };
+      yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'из ' } } };
+      yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'дельт' } } };
+      yield { type: 'assistant', message: { id: 'm2', content: [{ type: 'thinking', thinking: '', signature: 'SIG-2' }] } };
+      // пусто и без дельт (скрытое размышление) — в журнал не пишем
+      yield { type: 'assistant', message: { id: 'm3', content: [{ type: 'thinking', thinking: '', signature: 'SIG-3' }] } };
+      await sleep(200);
+    });
+    const saved: Array<[string, string]> = [];
+    m.thinkingSink = (sig, text) => saved.push([sig, text]);
+    const id = m.create({ factory });
+    await sleep(80);
+    expect(saved).toEqual([['SIG-1', 'полный текст'], ['SIG-2', 'из дельт']]);
+    const th = events.filter((e) => e.type === 'event:message.assistant') as Array<Extract<Event, { type: 'event:message.assistant' }>>;
+    expect(th.map((e) => (e.block.type === 'thinking' ? e.block.thinking : null))).toEqual(['полный текст', 'из дельт', '']);
+    await m.stop(id);
+  });
+
   it('system/api_retry → event:api.retry: попытка, лимит, пауза, статус и категория ошибки', async () => {
     const { m, events, factory } = managerWith(async function* () {
       yield { type: 'system', subtype: 'init', tools: [], mcp_servers: [], model: 'glm-5.3[1m]', permissionMode: 'auto' };

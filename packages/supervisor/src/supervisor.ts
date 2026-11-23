@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { SessionManager, type SpawnInfo } from './session/manager.js';
 import { fetchSupportedModels, sdkFactory } from './session/sdk.js';
 import { StateStore } from './state-store.js';
+import { ThinkingStore } from './thinkingStore.js';
 import { createDelegateServerConfig, DELEGATE_SERVER, type DelegateDeps } from './delegate.js';
 import { WssServer } from './wss.js';
 import { RemoteBrowserManager, chromiumLauncher, findChromium } from './panels/rbrowser.js';
@@ -49,7 +50,11 @@ export interface SupervisorOptions {
 
 export async function startSupervisor(opts: SupervisorOptions): Promise<{ manager: SessionManager; server: WssServer; port: number; stop: () => Promise<void>; pool: ProfilePools | null }> {
   const manager = new SessionManager(opts.idleTimeoutMs ?? 0);
-  const store = new StateStore(opts.stateFile ?? join(homedir(), '.perimeter', 'state.json'));
+  const stateFile = opts.stateFile ?? join(homedir(), '.perimeter', 'state.json');
+  const store = new StateStore(stateFile);
+  // текст размышлений — рядом с реестром (транскрипт Claude Code хранит thinking без текста)
+  const thinking = new ThinkingStore(join(dirname(stateFile), 'thinking.log'));
+  manager.thinkingSink = (signature, text) => thinking.put(signature, text);
 
   const base = {
     ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
@@ -167,6 +172,7 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
     port: opts.port,
     ...(opts.host !== undefined ? { host: opts.host } : {}),
     ...(opts.ringCapacity !== undefined ? { ringCapacity: opts.ringCapacity } : {}),
+    thinking,
     profiles,
     projects,
     accounts: { root: accountsRoot(profilesFile), mcpSharedFile: join(dirname(profilesFile), 'mcp-shared.json') },

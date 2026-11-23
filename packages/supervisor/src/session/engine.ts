@@ -24,6 +24,11 @@ export interface EngineOptions {
   onEvent: (e: EventDraft) => void;
   /** Таймаут карточки разрешения; 0 = без таймаута. */
   permissionTimeoutMs?: number;
+  /**
+   * Текст thinking-блока с его подписью: Claude Code пишет thinking в транскрипт без текста,
+   * supervisor хранит его сам (ThinkingStore) — лента после ресинка из транскрипта не теряет размышления.
+   */
+  onThinking?: (signature: string, text: string) => void;
 }
 
 class Deferred<T> {
@@ -51,6 +56,8 @@ export class SessionEngine {
   private running = false;
   /** stop() уже вызван: конец потока — ожидаемый, не ошибка для UI */
   private stopping = false;
+  /** текст текущего thinking-блока из потоковых дельт — запас, если в итоговом сообщении текста нет */
+  private streamThinking = '';
 
   constructor(opts: EngineOptions) {
     this.opts = opts;
@@ -289,10 +296,18 @@ export class SessionEngine {
         }
         continue;
       }
+      let out = block;
+      if (block.type === 'thinking') {
+        const text = block.thinking || this.streamThinking;
+        this.streamThinking = '';
+        const sig = (raw as { signature?: unknown }).signature;
+        if (text && typeof sig === 'string' && sig) this.opts.onThinking?.(sig, text);
+        if (text !== block.thinking) out = { type: 'thinking', thinking: text };
+      }
       this.emit({
         type: 'event:message.assistant',
         messageId: msg.message.id,
-        block,
+        block: out,
         parentToolUseId: null,
       });
     }
@@ -341,11 +356,13 @@ export class SessionEngine {
     // печатается «призраком» основной ленты
     if (msg.parent_tool_use_id) return;
     const ev = msg.event;
+    if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') { this.streamThinking = ''; return; }
     if (ev.type !== 'content_block_delta' || !ev.delta) return;
     const d = ev.delta;
     if (d.type === 'text_delta' && d.text !== undefined) {
       this.emit({ type: 'event:stream.delta', kind: 'text', delta: d.text });
     } else if (d.type === 'thinking_delta' && d.thinking !== undefined) {
+      this.streamThinking += d.thinking;
       this.emit({ type: 'event:stream.delta', kind: 'thinking', delta: d.thinking });
     } else if (d.type === 'input_json_delta' && d.partial_json !== undefined) {
       this.emit({ type: 'event:stream.delta', kind: 'input_json', delta: d.partial_json });

@@ -55,6 +55,8 @@ export type SdkMsg =
       event: {
         type: string;
         delta?: { type: string; text?: string; thinking?: string; partial_json?: string };
+        /** content_block_start: тип открывающегося блока (thinking/text/tool_use) */
+        content_block?: { type?: string };
       };
       parent_tool_use_id?: string | null;
     }

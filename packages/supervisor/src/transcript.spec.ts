@@ -122,3 +122,33 @@ describe('картинки в результатах инструментов н
     expect(stripImages('строка')).toBe('строка');
   });
 });
+
+describe('thinking в транскрипте без текста (так пишет Claude Code) — текст из журнала supervisor\'а', () => {
+  const write = (lines: unknown[]) => {
+    const dir = mkdtempSync(join(tmpdir(), 'cc-tr-')); dirs.push(dir);
+    const f = join(dir, 's.jsonl');
+    writeFileSync(f, lines.map((l) => JSON.stringify(l)).join('\n'), 'utf8');
+    return f;
+  };
+  const tr = [
+    { type: 'assistant', message: { id: 'm1', content: [{ type: 'thinking', thinking: '', signature: 'SIG-A' }] } },
+    { type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: 'ответ' }] } },
+    { type: 'assistant', message: { id: 'm2', content: [{ type: 'thinking', thinking: '', signature: 'SIG-B' }] } },
+    { type: 'assistant', message: { id: 'm3', content: [{ type: 'thinking', thinking: 'свой текст', signature: 'SIG-C' }] } },
+  ];
+
+  it('пустой thinking получает текст по подписи; неизвестный — не показывается; текст в транскрипте важнее', () => {
+    const known: Record<string, string> = { 'SIG-A': 'размышление A', 'SIG-C': 'из журнала' };
+    const r = readTranscriptItems(write(tr), undefined, { thinkingText: (s) => known[s] });
+    expect(r!.items.map((i) => [i.kind, i.data['text']])).toEqual([
+      ['thinking', 'размышление A'],
+      ['text', 'ответ'],
+      ['thinking', 'свой текст'],
+    ]);
+  });
+
+  it('без журнала — пустые блоки пропускаются (раньше — пустое «размышления»)', () => {
+    const r = readTranscriptItems(write(tr));
+    expect(r!.items.map((i) => i.kind)).toEqual(['text', 'thinking']);
+  });
+});

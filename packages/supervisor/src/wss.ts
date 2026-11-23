@@ -7,6 +7,7 @@ import { cpus, freemem, loadavg, tmpdir, totalmem, uptime } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { carryTranscript, readTranscriptItems, retargetTranscript, transcriptPath, writeTranscript } from './transcript.js';
+import type { ThinkingStore } from './thinkingStore.js';
 import { KEY_TEMPLATES, ProfileRegistry, accountEnv, explicitConfigDir, gatewayModels, keyVar, profileConfigDir, profileFromTemplate, usesKey, usesSubToken, type ModelsFrom, type Profile } from './profiles.js';
 import { ACCOUNT_KEY_MARK, globalConfigFile, mcpAdd, mcpList, mcpRemove, mergeMcp, readUserMcp, validateMcp, withAccountKey, type McpConfig, type McpDeps, type McpServerInfo, type McpStatus } from './mcp.js';
 import { McpSharedStore, ZAI_KEY_HOST, ZAI_MCP_PRESET, accountKeyOf, configFor, gatewayHostOf, isZaiGateway, rekeyConfig, templateOf, toMcpConfig, type StoredMcp } from './mcpShared.js';
@@ -34,6 +35,8 @@ export interface WssOptions {
   ensureDirs?: boolean;
   host?: string; // по умолчанию 127.0.0.1; переопределяется только для тестов/локальной отладки
   ringCapacity?: number;
+  /** журнал текста размышлений: транскрипт хранит thinking без текста — подставляем при transcript.get */
+  thinking?: ThinkingStore;
   /** профили аккаунтов (мультиакк) — отдаются в event:hello и применяются фабрикой */
   profiles?: ProfileRegistry;
   /** фабрика процесса claude для новой сессии; получает параметры сессии (cwd — куда класть транскрипт),
@@ -146,6 +149,7 @@ export class WssServer {
   private readonly resumeFactory: WssOptions['resumeFactory'];
   private readonly forkFactory: WssOptions['forkFactory'];
   private readonly profiles: ProfileRegistry;
+  private readonly thinking: ThinkingStore | undefined;
   private readonly projects: ProjectStore | null;
   private readonly pool: PoolLike | null;
   private readonly modelsFetcher: WssOptions['modelsFetcher'];
@@ -186,6 +190,7 @@ export class WssServer {
     this.resumeFactory = opts.resumeFactory;
     this.forkFactory = opts.forkFactory;
     this.profiles = opts.profiles ?? new ProfileRegistry([]);
+    this.thinking = opts.thinking;
     this.projects = opts.projects ?? null;
     this.pool = opts.pool ?? null;
     this.modelsFetcher = opts.modelsFetcher;
@@ -1184,7 +1189,7 @@ export class WssServer {
         }
         // транскрипт лежит в CLAUDE_CONFIG_DIR профиля сессии под настоящим id сессии claude
         const path = transcriptPath(this.configDirFor(info.profile), info.cwd, info.claudeSessionId);
-        const r = readTranscriptItems(path);
+        const r = readTranscriptItems(path, undefined, this.thinking ? { thinkingText: (sig) => this.thinking!.get(sig) } : {});
         // файла ещё нет (CLI пишет его с первой реплики) — тоже пустая лента
         this.sendReply(ws, r
           ? this.ack(f.id, { sessionId: sid, items: r.items, lastSeq: this.manager.seqLast(sid) })

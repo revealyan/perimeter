@@ -98,7 +98,11 @@ function userText(t: string): string | null {
  * Читает транскрипт и мапит в элементы ленты. afterUuid — продолжить после строки
  * с этим uuid (P0: отдаём хвост последних N элементов, лента восстанавливается целиком).
  */
-export function readTranscriptItems(path: string, limit = 500): { items: TranscriptItem[]; lines: number } | null {
+export function readTranscriptItems(
+  path: string,
+  limit = 500,
+  opts: { thinkingText?: (signature: string) => string | undefined } = {},
+): { items: TranscriptItem[]; lines: number } | null {
   let raw: string;
   try {
     raw = readFileSync(path, 'utf8');
@@ -127,7 +131,11 @@ export function readTranscriptItems(path: string, limit = 500): { items: Transcr
         if (b['type'] === 'text' && typeof b['text'] === 'string') {
           items.push({ kind: 'text', data: { text: b['text'] } });
         } else if (b['type'] === 'thinking' && typeof b['thinking'] === 'string') {
-          items.push({ kind: 'thinking', data: { text: b['thinking'] } });
+          // Claude Code пишет thinking без текста (только подпись) — текст из журнала supervisor'а;
+          // не нашёлся — блок не показываем (пустое «размышления» — шум)
+          const sig = typeof b['signature'] === 'string' ? b['signature'] : '';
+          const text = b['thinking'] || (sig ? opts.thinkingText?.(sig) ?? '' : '');
+          if (text) items.push({ kind: 'thinking', data: { text } });
         } else if (b['type'] === 'tool_use' && typeof b['name'] === 'string') {
           items.push({ kind: 'tool-use', data: { id: b['id'], name: b['name'], input: b['input'], result: undefined, isError: false, done: true } });
         }
