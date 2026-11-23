@@ -36,6 +36,7 @@ interface ConnIPC {
   updateConnection?(id: string, patch: Partial<ConnInput> & { enabled?: boolean }): Promise<Omit<Conn, 'kind'>>;
   removeConnection?(id: string): Promise<boolean>;
   testConnection?(c: ConnInput): Promise<{ ok: boolean; message: string }>;
+  setupKey?(c: { host: string; port?: number; user: string; password: string }): Promise<{ ok: boolean; message: string; privateKeyPath?: string }>;
   pickKeyFile?(): Promise<string | null>;
   forwardPort?(remotePort: number, connId?: string): Promise<string>;
   unforwardPort?(remotePort: number, connId?: string): Promise<boolean>;
@@ -190,6 +191,14 @@ class ConnectionsStore {
     this.list = this.list.filter((c) => c.id !== id);
     saveDev(this.list);
     this.emit();
+  }
+
+  /** Вход паролем один раз → ключ приложения на сервере (только в приложении; на стенде — нет). */
+  get canSetupKey(): boolean { return ipc()?.setupKey !== undefined; }
+  async setupKey(c: { host: string; port?: number; user: string; password: string }): Promise<{ ok: boolean; message: string; privateKeyPath?: string }> {
+    const m = ipc();
+    if (!m?.setupKey) return { ok: false, message: 'вход по паролю — только в приложении' };
+    return m.setupKey(c);
   }
 
   async test(c: ConnInput): Promise<{ ok: boolean; message: string }> {

@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('perimeterIPC', {
   removeConnection(id) {
     return ipcRenderer.invoke('perimeter:remove-connection', id);
   },
+  /** вход паролем один раз → ключ приложения на сервере; пароль дальше не живёт */
+  setupKey(c) {
+    return ipcRenderer.invoke('perimeter:setup-key', c);
+  },
   testConnection(c) {
     return ipcRenderer.invoke('perimeter:test-connection', c);
   },

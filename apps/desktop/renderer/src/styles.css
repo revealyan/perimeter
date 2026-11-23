@@ -1353,3 +1353,6 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .sb-usage { gap: 8px; }
 .sb-usage .tone-warn { color: var(--warn); }
 .sb-usage .tone-err { color: var(--err); }
+/* новый сервер по паролю: переключатель способа входа и пометка «пароль не сохраняем» */
+.conn-auth { margin: 4px 0 2px; }
+.conn-pass-note { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; padding: 8px 10px; border-radius: var(--radius); background: var(--info-soft); color: var(--fg); font-size: var(--fs-sm); line-height: 1.45; }

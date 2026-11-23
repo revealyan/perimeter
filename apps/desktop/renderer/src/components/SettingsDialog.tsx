@@ -108,11 +108,16 @@ function ConnForm({ conn, onSaved, onRemoved }: { conn?: Conn; onSaved: (id: Env
     ...(conn?.remotePort !== undefined ? { remotePort: conn.remotePort } : {}),
     ...(!managed ? { wsUrl: conn?.wsUrl ?? '' } : {}),
   }));
-  const [busy, setBusy] = useState<'' | 'test' | 'save' | 'remove'>('');
+  const [busy, setBusy] = useState<'' | 'test' | 'save' | 'remove' | 'key'>('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // новый сервер: по умолчанию — пароль один раз (приложение само положит свой ключ); «мой ключ уже на сервере» — как раньше
+  const [auth, setAuth] = useState<'password' | 'key'>(() => (!conn && connections.canSetupKey ? 'password' : 'key'));
+  // пароль — только в памяти формы: уходит в один вход и стирается
+  const [password, setPassword] = useState('');
   const set = (patch: Partial<typeof f>) => { setF({ ...f, ...patch }); setMsg(null); };
-  const valid = f.name.trim() !== '' && (managed ? f.host.trim() !== '' && f.user.trim() !== '' : /^wss?:\/\//.test(f.wsUrl ?? ''));
+  const byPassword = managed && auth === 'password';
+  const valid = f.name.trim() !== '' && (managed ? f.host.trim() !== '' && f.user.trim() !== '' && (!byPassword || password !== '') : /^wss?:\/\//.test(f.wsUrl ?? ''));
   const input = (): ConnInput => ({
     name: f.name.trim(), host: f.host.trim(), user: f.user.trim(),
     ...(f.port ? { port: f.port } : {}),
@@ -123,15 +128,33 @@ function ConnForm({ conn, onSaved, onRemoved }: { conn?: Conn; onSaved: (id: Env
     setBusy('test');
     try { const r = await connections.test(input()); setMsg({ ok: r.ok, text: r.message }); } catch (e) { setMsg({ ok: false, text: ipcError(e) }); } finally { setBusy(''); }
   };
+  /** Пароль → ключ приложения на сервере; дальше подключение ходит ключом (путь — в поле ключа). */
+  const installKey = async (): Promise<string | null> => {
+    setBusy('key');
+    setMsg({ ok: true, text: 'Вхожу паролем и кладу на сервер ключ приложения…' });
+    const r = await connections.setupKey({ host: f.host.trim(), user: f.user.trim(), password, ...(f.port ? { port: f.port } : {}) });
+    if (!r.ok || !r.privateKeyPath) { setMsg({ ok: false, text: r.message }); setBusy(''); return null; }
+    setPassword('');
+    setAuth('key');
+    setF((x) => ({ ...x, privateKey: r.privateKeyPath! }));
+    return r.privateKeyPath;
+  };
   const save = async () => {
+    let key = f.privateKey;
+    if (byPassword) {
+      const k = await installKey();
+      if (k === null) return;
+      key = k;
+    }
     setBusy('save');
+    const withKey = { ...input(), ...(key ? { privateKey: key } : {}) };
     try {
       if (conn) {
-        await connections.update(conn.id, { ...input(), ...(!managed ? { wsUrl: f.wsUrl ?? '' } : {}) });
+        await connections.update(conn.id, { ...withKey, ...(!managed ? { wsUrl: f.wsUrl ?? '' } : {}) });
         setMsg({ ok: true, text: 'сохранено' });
         onSaved(conn.id);
       } else {
-        const c = await connections.add({ ...input(), ...(!managed && f.wsUrl ? { wsUrl: f.wsUrl } : {}) });
+        const c = await connections.add({ ...withKey, ...(!managed && f.wsUrl ? { wsUrl: f.wsUrl } : {}) });
         onSaved(c.id);
       }
     } catch (e) { setMsg({ ok: false, text: ipcError(e) }); } finally { setBusy(''); }
@@ -154,13 +177,27 @@ function ConnForm({ conn, onSaved, onRemoved }: { conn?: Conn; onSaved: (id: Env
             <label className="field"><span>Пользователь</span><input className="mono" value={f.user} onChange={(e) => set({ user: e.target.value })} spellCheck={false} /></label>
             <label className="field"><span>Порт supervisor на сервере</span><input className="mono" value={f.remotePort ?? ''} onChange={(e) => set({ remotePort: Number(e.target.value) || undefined })} placeholder="8790" /></label>
           </div>
-          <label className="field">
-            <span>Ключ ssh (пусто — ssh-agent и ~/.ssh/id_*)</span>
-            <span className="field-inline">
-              <input className="mono" value={f.privateKey ?? ''} onChange={(e) => set({ privateKey: e.target.value || undefined })} placeholder="C:\Users\…\.ssh\id_ed25519" spellCheck={false} />
-              <button type="button" className="btn sm" onClick={() => void pickKey()}><Icon name="folder" size={12} /> Выбрать</button>
-            </span>
-          </label>
+          {connections.canSetupKey && (
+            <div className="seg env-seg conn-auth" role="radiogroup" aria-label="Как войти">
+              <button type="button" role="radio" aria-checked={auth === 'password'} className={auth === 'password' ? 'on' : ''} onClick={() => { setAuth('password'); setMsg(null); }}>Пароль</button>
+              <button type="button" role="radio" aria-checked={auth === 'key'} className={auth === 'key' ? 'on' : ''} onClick={() => { setAuth('key'); setPassword(''); setMsg(null); }}>Мой ssh-ключ уже на сервере</button>
+            </div>
+          )}
+          {byPassword ? (
+            <label className="field">
+              <span>Пароль {f.user.trim() || 'пользователя'} (тот, что дал хостер)</span>
+              <input type="password" autoComplete="off" value={password} onChange={(e) => { setPassword(e.target.value); setMsg(null); }} spellCheck={false} />
+              <span className="conn-pass-note"><Icon name="lock" size={12} /> Пароль нужен один раз: войдём, положим на сервер ключ этого приложения и дальше будем ходить только им. Пароль не сохраняется — ни на этом компьютере, ни на сервере.</span>
+            </label>
+          ) : (
+            <label className="field">
+              <span>Ключ ssh (пусто — ssh-agent и ~/.ssh/id_*)</span>
+              <span className="field-inline">
+                <input className="mono" value={f.privateKey ?? ''} onChange={(e) => set({ privateKey: e.target.value || undefined })} placeholder="C:\Users\…\.ssh\id_ed25519" spellCheck={false} />
+                <button type="button" className="btn sm" onClick={() => void pickKey()}><Icon name="folder" size={12} /> Выбрать</button>
+              </span>
+            </label>
+          )}
         </>
       ) : (
         <label className="field">
@@ -178,8 +215,8 @@ function ConnForm({ conn, onSaved, onRemoved }: { conn?: Conn; onSaved: (id: Env
             </>
           : <button className="link-btn danger" onClick={() => setConfirmRemove(true)}>удалить подключение</button>)}
         <span className="spacer" />
-        {managed && <button className="btn" disabled={!valid || busy !== ''} onClick={() => void test()}>{busy === 'test' ? 'Проверяю…' : 'Проверить'}</button>}
-        <button className="btn primary" disabled={!valid || busy !== ''} onClick={() => void save()}>{conn ? 'Сохранить' : 'Подключить'}</button>
+        {managed && !byPassword && <button className="btn" disabled={!valid || busy !== ''} onClick={() => void test()}>{busy === 'test' ? 'Проверяю…' : 'Проверить'}</button>}
+        <button className="btn primary" disabled={!valid || busy !== ''} onClick={() => void save()}>{busy === 'key' ? 'Ставлю ключ…' : conn ? 'Сохранить' : 'Подключить'}</button>
       </div>
     </div>
   );
@@ -244,7 +281,7 @@ export function SettingsDialog({ clients, initial, composerStyle, onComposerStyl
           {page.kind === 'add' && (
             <>
               <h3 className="st-h">Новое подключение</h3>
-              <p className="dim st-sub">VPS с запущенным supervisor'ом perimeter. Приложение поднимет к нему ssh-туннель и покажет его сессии отдельной секцией.</p>
+              <p className="dim st-sub">Сервер (VPS), где будут жить сессии. Хватит адреса и пароля, который дал хостер: приложение положит туда свой ключ, поставит supervisor кнопкой ниже и покажет его сессии отдельной секцией.</p>
               <ConnForm onSaved={(id) => { setPage({ kind: 'conn', id }); setTab('link'); }} />
             </>
           )}

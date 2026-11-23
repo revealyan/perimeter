@@ -76,6 +76,8 @@ declare global {
       removeConnection?(id: string): Promise<boolean>;
       /** пробное ssh-подключение и проверка, что на VPS слушает supervisor; ничего не сохраняет */
       testConnection?(c: PerimeterConnInput): Promise<{ ok: boolean; message: string }>;
+      /** вход паролем один раз → ключ приложения в authorized_keys; путь ключа — для подключения */
+      setupKey?(c: { host: string; port?: number; user: string; password: string }): Promise<{ ok: boolean; message: string; privateKeyPath?: string }>;
       /** нативный выбор файла ключа ssh (открывается в ~/.ssh); null — отменили */
       pickKeyFile?(): Promise<string | null>;
       /** supervisor на сервере (АДР 004): что стоит, версия приложения, что предлагать */

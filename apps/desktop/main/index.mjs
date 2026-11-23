@@ -9,6 +9,7 @@ import { Tunnel, testConnection } from './tunnel.mjs';
 import { ConnectionManager, migrateClientDir, validateInput } from './connections.mjs';
 import { ServerInstaller } from './server-install.mjs';
 import { ensureLocalServer, localSupervisorEnv } from './local-server.mjs';
+import { installKeyWithPassword } from './ssh-keys.mjs';
 
 // имя приложения (профиль %APPDATA%/Perimeter вместо scoped-имени пакета «@perimeter/desktop»)
 app.setName('Perimeter');
@@ -204,6 +205,22 @@ ipcMain.handle('perimeter:test-connection', async (_e, c) => {
     remotePort: v.remotePort ?? 8790,
     ...(v.privateKey ? { privateKeyPath: v.privateKey } : {}),
   });
+});
+// новый сервер по паролю (docs/design/onboarding.md): один вход паролем → ключ приложения в authorized_keys →
+// дальше подключение ходит ключом. Пароль только в памяти этого вызова — не пишется и не логируется.
+ipcMain.handle('perimeter:setup-key', async (_e, arg) => {
+  const host = String(arg?.host ?? '').trim();
+  const user = String(arg?.user ?? '').trim();
+  const port = arg?.port === undefined || arg?.port === null || arg?.port === '' ? 22 : Number(arg.port);
+  const password = typeof arg?.password === 'string' ? arg.password : '';
+  if (!host || !user || !Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, message: 'нужны хост, пользователь и порт ssh' };
+  if (!password) return { ok: false, message: 'введите пароль' };
+  try {
+    const r = await installKeyWithPassword({ host, port, user, password });
+    return { ok: true, privateKeyPath: r.privateKeyPath, message: 'ключ приложения на сервере — дальше вход по нему' };
+  } catch (e) {
+    return { ok: false, message: String(e?.message ?? e) };
+  }
 });
 // выбор файла ключа ssh для формы подключения (открывается в ~/.ssh)
 ipcMain.handle('perimeter:pick-key-file', async () => {
