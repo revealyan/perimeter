@@ -13,6 +13,10 @@ import { ensureLocalServer, localSupervisorEnv } from './local-server.mjs';
 // имя приложения (профиль %APPDATA%/Perimeter вместо scoped-имени пакета «@perimeter/desktop»)
 app.setName('Perimeter');
 
+// packaged: серверная сборка для VPS едет готовой в resources (исходников в установке нет);
+// devBundle установщика читает её через PERIMETER_SERVER_BUNDLE
+if (app.isPackaged) process.env.PERIMETER_SERVER_BUNDLE = join(process.resourcesPath, 'app-server');
+
 const devUrl = process.env.PERIMETER_DEV_URL ?? 'http://localhost:5173';
 
 // Профиль приложения назывался «@codecode» до переименования (Electron берёт имя пакета): первого запуска

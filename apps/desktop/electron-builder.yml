@@ -19,9 +19,10 @@ files:
 # ssh2 с нативными ускорителями — optional и без них работает)
 asar: true
 
+# бандлы сборки prepare-pack: <resources>/app-supervisor (локальная среда) и <resources>/app-server (VPS)
 extraResources:
   - from: resources
-    to: app-supervisor
+    to: .
     filter:
       - "**/*"
 

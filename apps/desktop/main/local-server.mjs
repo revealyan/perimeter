@@ -49,17 +49,29 @@ async function installPackage(p, dest) {
     const got = createHash('sha512').update(buf).digest('base64');
     if (got !== m[1]) throw new Error(`${p.name}: не сошлась контрольная сумма (испорчен скачиванием?)`);
   }
-  mkdirSync(dirname(dest), { recursive: true });
+  // tar делает chdir в C — папка назначения должна существовать (и быть пустой)
   rmSync(dest, { recursive: true, force: true });
-  await extract({ buffer: buf, strip: 1, C: dest, strict: true });
+  mkdirSync(dest, { recursive: true });
+  // tar читает архив из файла: пишем буфер во временный и распаковываем (опции buffer у extract нет)
+  const tmp = `${dest}.tgz-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  writeFileSync(tmp, buf);
+  try {
+    await extract({ file: tmp, strip: 1, C: dest, strict: true });
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+  if (!existsSync(join(dest, 'package.json'))) throw new Error(`${p.name}: распаковка не дала файлов`);
 }
 
 /** Запуск packaged-локального supervisor: бандл из resources, состояние в профиле. */
 export function localSupervisorEnv({ app, installDir }) {
+  // SDK в бандле не разрезолвит платформенный CLI сам — указываем бинарь явно
+  const cli = join(installDir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-win32-x64', 'claude.exe');
   return {
     PERIMETER_STATE: join(app.getPath('userData'), 'local-state.json'),
     // хранилище проектов этого компьютера: рядом с домом (в dev это был родитель репозитория)
     PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? join(homedir(), 'perimeter-projects'),
     PERIMETER_LOCAL_BUNDLE: installDir,
+    ...(existsSync(cli) ? { PERIMETER_CLI_PATH: cli } : {}),
   };
 }

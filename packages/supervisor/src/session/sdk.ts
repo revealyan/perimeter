@@ -115,6 +115,8 @@ export function sdkFactory(sess: SdkSessionOptions) {
       ...(sess.disallowedTools !== undefined ? { disallowedTools: sess.disallowedTools } : {}),
       ...(sess.effort !== undefined ? { effort: sess.effort } : {}),
       ...(flagSettings(sess) !== undefined ? { settings: flagSettings(sess) as Options['settings'] } : {}),
+      // явный путь к CLI (packaged-приложение: бинарь в докачанном node_modules — сам SDK его из бандла не разрезолвит)
+      ...(process.env.PERIMETER_CLI_PATH !== undefined ? { pathToClaudeCodeExecutable: process.env.PERIMETER_CLI_PATH } : {}),
     };
     const q = query({
       // вход движка (наша очередь) отдаём как стриминговый prompt SDK
