@@ -89,6 +89,33 @@ describe('панель «Задачи»', () => {
     expect(p.items[3]!.status).toBe('pending');
     expect(p.itemId).toBe(items[1]!.id);
   });
+  it('список задач TaskCreate/TaskUpdate: id из результата, статусы и правки по taskId, deleted убирает', () => {
+    const items = [
+      tool('TaskCreate', { subject: 'Разобрать баг', description: '…', activeForm: 'Разбираю баг' }, { task: { id: '1', subject: 'Разобрать баг' } }),
+      tool('TaskCreate', { subject: 'Починить' }, 'Task #2 created successfully: Починить'),
+      tool('TaskCreate', { subject: 'Лишняя' }, { task: { id: '3', subject: 'Лишняя' } }),
+      tool('TaskUpdate', { taskId: '1', status: 'in_progress' }, { success: true, taskId: '1', updatedFields: ['status'] }),
+      tool('TaskUpdate', { taskId: '3', status: 'deleted' }, { success: true, taskId: '3', updatedFields: [] }),
+      tool('TaskUpdate', { taskId: '1', status: 'completed' }, { success: true, taskId: '1', updatedFields: ['status'] }),
+      tool('TaskUpdate', { taskId: '2', status: 'in_progress', subject: 'Починить разбор' }, { success: true, taskId: '2', updatedFields: ['status', 'subject'] }),
+    ];
+    const p = extractPlan(items)!;
+    expect(p.items).toEqual([
+      { text: 'Разобрать баг', status: 'completed', active: 'Разбираю баг' },
+      { text: 'Починить разбор', status: 'in_progress' },
+    ]);
+    expect([p.done, p.total]).toEqual([1, 2]);
+    expect(p.itemId).toBe(items[6]!.id);
+  });
+  it('TaskCreate ещё идёт (без результата) — задача уже в списке; TaskList — снимок целиком', () => {
+    const pending = extractPlan([tool('TaskCreate', { subject: 'Думаю' })])!;
+    expect(pending.items).toEqual([{ text: 'Думаю', status: 'pending' }]);
+    const snap = extractPlan([
+      tool('TaskCreate', { subject: 'А', activeForm: 'Делаю А' }, { task: { id: '1', subject: 'А' } }),
+      tool('TaskList', {}, { tasks: [{ id: '1', subject: 'А', status: 'in_progress', blockedBy: [] }, { id: '2', subject: 'Б', status: 'pending', blockedBy: [] }] }),
+    ])!;
+    expect(snap.items).toEqual([{ text: 'А', status: 'in_progress', active: 'Делаю А' }, { text: 'Б', status: 'pending' }]);
+  });
   it('плана нет — null', () => {
     expect(extractPlan([it_('text', { text: 'a' })])).toBeNull();
   });

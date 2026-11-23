@@ -6,6 +6,7 @@
 // Сценарий выбирается словом в сообщении:
 //   «разреш» — карточка разрешения · «вопрос» — AskUserQuestion · «ошибк» — упавшая команда
 //   «картин» — картинка в результате · «субагент» — ветка Task · «делегир» — воркер на другом аккаунте · «долго» — длинный ход (проверка Stop)
+//   «задач» — список задач (TaskCreate/TaskUpdate), ход висит минуту
 //   иначе — обзорный ход: thinking, Glob, Read, Grep, Bash, Edit (патч), Write, маркдаун, итог хода.
 //
 // Панели (файлы/git/терминал) работают по-настоящему: все сессии демо получают cwd внутри DEMO_ROOT
@@ -129,7 +130,19 @@ function scriptedFactory(sess: { cwd?: string; model?: string; permissionMode?: 
         } as SdkMsg);
 
         // ── сценарии ──
-        if (/разреш/i.test(text)) {
+        if (/задач/i.test(text)) {
+          // список задач (TaskCreate/TaskUpdate), как в Claude Code Desktop: полоска над полем ввода и панель «Задачи»
+          yield* say('Разобью работу на задачи.');
+          yield* tool('TaskCreate', { subject: 'Найти, где теряется ризонинг', description: '…', activeForm: 'Ищу, где теряется ризонинг' }, { task: { id: '1', subject: 'Найти, где теряется ризонинг' } }, { delay: 250 });
+          yield* tool('TaskCreate', { subject: 'Сохранять текст размышлений', description: '…', activeForm: 'Сохраняю текст размышлений' }, { task: { id: '2', subject: 'Сохранять текст размышлений' } }, { delay: 250 });
+          yield* tool('TaskCreate', { subject: 'Проверить на подставном шлюзе', description: '…', activeForm: 'Проверяю на подставном шлюзе' }, { task: { id: '3', subject: 'Проверить на подставном шлюзе' } }, { delay: 250 });
+          yield* tool('TaskUpdate', { taskId: '1', status: 'in_progress' }, { success: true, taskId: '1', updatedFields: ['status'] }, { delay: 250 });
+          yield* tool('TaskUpdate', { taskId: '1', status: 'completed' }, { success: true, taskId: '1', updatedFields: ['status'] }, { delay: 250 });
+          yield* tool('TaskUpdate', { taskId: '2', status: 'in_progress' }, { success: true, taskId: '2', updatedFields: ['status'] }, { delay: 250 });
+          yield* say('Первая готова, берусь за вторую.');
+          // «долго» — ход висит, полоску видно в процессе
+          for (let i = 0; i < 600 && !interrupted; i++) await sleep(100);
+        } else if (/разреш/i.test(text)) {
           yield* say('Пересоберу клиент начисто — для этого нужно удалить старую сборку.');
           yield* tool('Bash', { command: 'rm -rf apps/desktop/dist-renderer && npm run build -w @perimeter/desktop', description: 'Удалить старую сборку и собрать клиент заново' },
             { stdout: 'vite v8.3.6 building client environment for production...\n✓ 49 modules transformed.\ndist-renderer/index.html   0.37 kB\n✓ built in 1.60s', stderr: '', interrupted: false }, { ask: true, delay: 900 });

@@ -58,6 +58,18 @@ export function toolHead(name: string, input: unknown): ToolHead {
     }
     case 'TodoWrite':
       return { kind: 'todo', verb: 'План', target: `${Array.isArray(i['todos']) ? (i['todos'] as unknown[]).length : 0} пунктов` };
+    // список задач (TaskCreate/TaskUpdate…): строкой ленты — что за задача и что с ней
+    case 'TaskCreate':
+      return { kind: 'todo', verb: 'Задача', target: str(i['subject']) || 'новая' };
+    case 'TaskUpdate': {
+      const st = str(i['status']);
+      const verb = st === 'completed' ? 'Готово' : st === 'in_progress' ? 'В работе' : st === 'deleted' ? 'Убрана задача' : 'Задача';
+      return { kind: 'todo', verb, target: str(i['subject']) || `#${str(i['taskId'])}` };
+    }
+    case 'TaskList':
+      return { kind: 'todo', verb: 'Задачи', target: 'список' };
+    case 'TaskGet':
+      return { kind: 'todo', verb: 'Задача', target: `#${str(i['taskId'])}` };
     default: {
       const m = /^mcp__(.+?)__(.+)$/.exec(name);
       if (m) return { kind: 'mcp', verb: m[1]!, target: m[2]!.replace(/_/g, ' ') };

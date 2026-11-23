@@ -134,7 +134,7 @@ export function TasksTab({ session, client, plan, onReveal }: { session: Session
               ))}
             </ul>
           </>
-        ) : <div className="panel-note">Агент ещё не составлял план в этой сессии (инструмент TodoWrite).</div>}
+        ) : <div className="panel-note">Агент ещё не составлял список задач в этой сессии. Включается в настройках аккаунта («список задач»).</div>}
       </section>
       <section className="psec">
         <div className="psec-title"><Icon name="terminal" size={14} /><span>Идущие команды · {running.length}</span></div>

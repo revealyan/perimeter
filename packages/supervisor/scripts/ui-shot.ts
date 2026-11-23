@@ -23,14 +23,16 @@ try {
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true }) as { sessionId: string };
   await cdp.send('Page.enable', {}, sessionId);
   await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }, sessionId);
-  await cdp.send('Page.navigate', { url }, sessionId);
-  await new Promise((r) => setTimeout(r, 1500));
-  // SHOT_LS='{"ключ":"значение"}' — выставить localStorage (подключения стенда) и перезагрузить
+  // SHOT_LS='{"ключ":"значение"}' — localStorage стенда (адреса supervisor'ов) выставляется ДО запуска приложения:
+  // на технической странице того же origin (/@vite/client — модуль vite, приложение там не стартует). Иначе первая
+  // загрузка успевала подключиться к адресам по умолчанию — на VPS это ws://127.0.0.1:8790, прод-supervisor.
   const ls = process.env['SHOT_LS'];
   if (ls) {
+    await cdp.send('Page.navigate', { url: new URL('/@vite/client', url).href }, sessionId);
+    await new Promise((r) => setTimeout(r, 800));
     await cdp.send('Runtime.evaluate', { expression: `(() => { const o = ${ls}; for (const [k, v] of Object.entries(o)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); })()` }, sessionId);
-    await cdp.send('Page.navigate', { url }, sessionId);
   }
+  await cdp.send('Page.navigate', { url }, sessionId);
   await new Promise((r) => setTimeout(r, 2500));
   if (script) {
     const expr = `(async () => { const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

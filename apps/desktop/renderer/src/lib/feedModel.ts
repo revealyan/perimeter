@@ -216,23 +216,77 @@ export type PlanStatus = 'pending' | 'in_progress' | 'completed';
 export interface PlanItem { text: string; status: PlanStatus; active?: string }
 export interface Plan { items: PlanItem[]; done: number; total: number; itemId: string }
 
-/** План агента — из последнего вызова TodoWrite в ленте (input.todos: content/status/activeForm). */
+/**
+ * План агента из ленты — как список задач в Claude Code Desktop. Два набора инструментов:
+ * - TodoWrite (старые модели): каждый вызов — весь список целиком (input.todos: content/status/activeForm);
+ * - TaskCreate/TaskUpdate/TaskList (с 23.11 у всех моделей, настройка аккаунта «список задач»): задачи по одной —
+ *   создание (id — из результата), правка статуса/текста по taskId, «deleted» — убрать; TaskList — снимок целиком.
+ * Вызовы проигрываются по порядку; последний снимок (TodoWrite/TaskList) заменяет накопленное.
+ */
 export function extractPlan(items: FeedItem[]): Plan | null {
-  for (let k = items.length - 1; k >= 0; k--) {
-    const it = items[k]!;
-    if (it.kind !== 'tool-use' || it.data['name'] !== 'TodoWrite') continue;
-    const todos = asObj(it.data['input'])?.['todos'];
-    if (!Array.isArray(todos)) continue;
-    const list: PlanItem[] = todos.map((t) => {
-      const o = asObj(t) ?? {};
-      const s = str(o['status']);
-      const status: PlanStatus = s === 'completed' || s === 'in_progress' ? s : 'pending';
-      const active = str(o['activeForm']);
-      return { text: str(o['content']), status, ...(active ? { active } : {}) };
-    });
-    return { items: list, done: list.filter((t) => t.status === 'completed').length, total: list.length, itemId: it.id };
+  let list: Array<PlanItem & { key: string }> | null = null;
+  let itemId = '';
+  const find = (id: string) => list?.find((t) => t.key === id);
+  for (const it of items) {
+    if (it.kind !== 'tool-use') continue;
+    const name = it.data['name'];
+    const input = asObj(it.data['input']) ?? {};
+    const result = it.data['result'];
+    if (name === 'TodoWrite') {
+      const todos = input['todos'];
+      if (!Array.isArray(todos)) continue;
+      list = todos.map((t, i) => {
+        const o = asObj(t) ?? {};
+        const active = str(o['activeForm']);
+        return { key: `todo-${i}`, text: str(o['content']), status: planStatus(o['status']), ...(active ? { active } : {}) };
+      });
+      itemId = it.id;
+    } else if (name === 'TaskCreate') {
+      list ??= [];
+      // id задачи — из результата; пока его нет (вызов идёт) — держим по id вызова
+      const id = taskIdOf(result) ?? `call-${it.id}`;
+      const active = str(input['activeForm']);
+      if (!find(id)) list.push({ key: id, text: str(input['subject']) || str(asObj(asObj(result)?.['task'])?.['subject']), status: 'pending', ...(active ? { active } : {}) });
+      itemId = it.id;
+    } else if (name === 'TaskUpdate') {
+      const t = find(str(input['taskId']));
+      if (!t || !list) continue;
+      const st = str(input['status']);
+      if (st === 'deleted') list = list.filter((x) => x !== t);
+      else {
+        if (st) t.status = planStatus(st);
+        if (str(input['subject'])) t.text = str(input['subject']);
+        if (str(input['activeForm'])) t.active = str(input['activeForm']);
+      }
+      itemId = it.id;
+    } else if (name === 'TaskList') {
+      const tasks = asObj(result)?.['tasks'];
+      if (!Array.isArray(tasks)) continue;
+      type Keyed = PlanItem & { key: string };
+      const prev = new Map<string, Keyed>((list ?? []).map((t): [string, Keyed] => [t.key, t]));
+      list = tasks.map((t): Keyed => {
+        const o = asObj(t) ?? {};
+        const key = str(o['id']);
+        const active = prev.get(key)?.active;
+        return { key, text: str(o['subject']), status: planStatus(o['status']), ...(active ? { active } : {}) };
+      });
+      itemId = it.id;
+    }
   }
-  return null;
+  if (!list || list.length === 0) return null;
+  const out = list.map(({ key: _k, ...t }) => t);
+  return { items: out, done: out.filter((t) => t.status === 'completed').length, total: out.length, itemId };
+}
+
+const planStatus = (v: unknown): PlanStatus => (v === 'completed' || v === 'in_progress' ? v : 'pending');
+
+/** id созданной задачи: структурный результат ({ task: { id } }) или текст «Task #3 created…». */
+function taskIdOf(result: unknown): string | undefined {
+  const id = asObj(asObj(result)?.['task'])?.['id'];
+  if (typeof id === 'string' && id) return id;
+  if (typeof id === 'number') return String(id);
+  const text = typeof result === 'string' ? result : Array.isArray(result) ? result.map((b) => str(asObj(b)?.['text'])).join(' ') : '';
+  return /#(\d+)/.exec(text)?.[1];
 }
 
 export interface RunningCmd { itemId: string; command: string; description?: string; startedAt?: number }

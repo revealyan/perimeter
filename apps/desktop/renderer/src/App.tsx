@@ -8,6 +8,7 @@ import { SyncDialog } from './components/SyncDialog';
 import { TransferDialog, type TransferDone } from './components/TransferDialog';
 import { Feed } from './components/Feed';
 import { Composer } from './components/Composer';
+import { TaskStrip, showTaskStrip } from './components/TaskStrip';
 import { EffortPicker, ModelPicker, ModePicker, UltracodeToggle } from './components/SessionPickers';
 import { StatusBar } from './components/StatusBar';
 import { Panel } from './components/Panel';
@@ -18,7 +19,7 @@ import { undoTransfer } from './lib/transferModel';
 import { LOCAL, connections } from './connections';
 import { AUTO_POLL_MS, ports } from './ports';
 import { answerHotkey, clampRect, normalizePanelState, panelHotkey, toggleTab, type PanelState, type PanelTab } from './lib/panelLayout';
-import { fileChanges } from './lib/feedModel';
+import { extractPlan, fileChanges } from './lib/feedModel';
 import { groupOf } from './lib/sessionGroups';
 import { afterPaint, requestComposerInsert } from './composeBus';
 import { COMPOSER_STYLE_KEY, draftKey, parseComposerStyle, type ComposerStyle } from './lib/composerModel';
@@ -245,6 +246,8 @@ export default function App() {
   const openTab = (tab: PanelTab) => setPanel((s) => ({ ...s, open: true, tab }));
   const openChange = (path: string) => { setSelectedFile(path); openTab('changes'); };
   /** Прокрутить ленту к элементу (из панели); на весь экран — сначала свернуть. */
+  // список задач над полем ввода (как в Desktop): план активной сессии
+  const activePlan = active ? extractPlan(active.items) : null;
   const reveal = (itemId: string) => {
     setPanel((s) => (s.fullscreen ? { ...s, fullscreen: false } : s));
     requestAnimationFrame(() => {
@@ -379,6 +382,7 @@ export default function App() {
             : active
             ? <>
                 <Feed session={active} client={client} onOpenChange={openChange} onOpenSession={(id) => selectSession(activeEnv, id)} />
+                {showTaskStrip(activePlan) && <TaskStrip key={`tasks:${activeEnv}:${active.id}`} plan={activePlan} onReveal={reveal} />}
                 <Composer
                   key={`${activeEnv}:${active.id}`}
                   variant={composerStyle}

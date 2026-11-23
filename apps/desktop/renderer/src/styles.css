@@ -1330,3 +1330,9 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .dw-feed .step { margin: 0; }
 /* лимит ответа аккаунта: два выбора в строку */
 .acct-limits { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* список задач над полем ввода (как в Claude Code Desktop) */
+.task-strip { margin: 0 auto; width: min(100%, var(--feed-w, 820px)); padding: 0 16px; }
+.task-strip-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 12px; border: 1px solid var(--border); border-bottom: none; border-radius: var(--radius) var(--radius) 0 0; background: var(--bg-2, transparent); color: inherit; font: inherit; font-size: var(--fs-sm); cursor: pointer; text-align: left; }
+.task-strip-cur { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.task-strip-list { margin: 0; padding: 6px 12px 8px; border: 1px solid var(--border); border-top: none; border-bottom: none; max-height: 220px; overflow: auto; }
+.task-strip-foot { list-style: none; justify-content: flex-end; }
