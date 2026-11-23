@@ -183,6 +183,22 @@ export function pickDisplay(exists: (p: string) => boolean = existsSync, from = 
   return null;
 }
 
+/**
+ * Живые виртуальные экраны процесса. Xvfb запускается своей группой (detached) и гасится, когда браузер закрылся;
+ * если процесс выходит раньше (штатная остановка supervisor'а, конец воркера тестов) — экран оставался сиротой
+ * (23.11: на VPS накопились Xvfb :99–:102 от прогонов тестов). При выходе процесса гасим все — синхронно.
+ */
+const liveScreens = new Set<() => void>();
+let exitHooked = false;
+function trackScreen(kill: () => void): () => void {
+  liveScreens.add(kill);
+  if (!exitHooked) {
+    exitHooked = true;
+    process.once('exit', () => { for (const k of liveScreens) k(); });
+  }
+  return () => { liveScreens.delete(kill); kill(); };
+}
+
 /** Поднять Xvfb: готов, когда появился его сокет; не поднялся за 5 с — исключение с хвостом вывода. */
 export function startXvfb(bin: string): Promise<{ display: string; kill: () => void }> {
   return new Promise((resolve, reject) => {
@@ -190,7 +206,9 @@ export function startXvfb(bin: string): Promise<{ display: string; kill: () => v
     if (n === null) { reject(new PanelError('RB_UNAVAILABLE', 'нет свободного номера виртуального экрана (:99–:199)')); return; }
     let child: ChildProcess;
     try {
-      child = spawn(bin, [`:${n}`, '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-dpi', '96'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+      // -terminate: экран сам завершается, когда отключился последний клиент (браузер) — даже если наш процесс
+      // уже исчез и не успел его погасить (воркер тестов, kill supervisor'а)
+      child = spawn(bin, [`:${n}`, '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-dpi', '96', '-terminate'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
     } catch (err) {
       reject(new PanelError('RB_UNAVAILABLE', `виртуальный экран не запустился: ${String((err as Error).message)}`));
       return;
@@ -204,7 +222,7 @@ export function startXvfb(bin: string): Promise<{ display: string; kill: () => v
       if (done) return;
       done = true;
       clearInterval(poll);
-      if (err) { kill(); reject(new PanelError('RB_UNAVAILABLE', err)); } else resolve({ display: `:${n}`, kill });
+      if (err) { kill(); reject(new PanelError('RB_UNAVAILABLE', err)); } else resolve({ display: `:${n}`, kill: trackScreen(kill) });
     };
     child.once('error', (e) => finish(`виртуальный экран не запустился: ${String(e.message)}`));
     child.once('exit', (code) => finish(`виртуальный экран завершился при запуске (код ${code ?? '—'})${tail ? `: ${tail.slice(-300)}` : ''}`));
