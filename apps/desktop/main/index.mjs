@@ -238,6 +238,13 @@ ipcMain.handle('perimeter:server-install', async (_e, arg) => {
 ipcMain.handle('perimeter:server-rollback', async (_e, id) => {
   try { return await installer.rollback(connOf(id), logTo(String(id))); } catch (e) { return { ok: false, message: e.message }; }
 });
+// «Установить недостающее» (git, xvfb, сборка node-pty…): только имена пакетов — без опций apt (ведущий «-»)
+ipcMain.handle('perimeter:server-packages', async (_e, arg) => {
+  const id = String(arg?.id ?? '');
+  const pkgs = (Array.isArray(arg?.pkgs) ? arg.pkgs : []).map(String).filter((p) => /^[a-z0-9][a-z0-9+.-]{0,63}$/.test(p));
+  if (pkgs.length === 0) return { ok: false, message: 'нечего ставить' };
+  try { return await installer.packages(connOf(id), pkgs, logTo(id)); } catch (e) { return { ok: false, message: e.message }; }
+});
 // хост первого VPS для ссылок «Открыть в VS Code (Remote SSH)» — без ключей и прочих секретов
 ipcMain.handle('perimeter:tunnel-info', () => {
   const f = conns.first();
