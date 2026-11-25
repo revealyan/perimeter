@@ -113,7 +113,7 @@ export class SessionEngine {
           }),
         ]
       : text;
-    this.queue.push({ type: 'user', message: { role: 'user', content } });
+    this.queue.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: '' });
   }
 
   async interrupt(): Promise<void> {

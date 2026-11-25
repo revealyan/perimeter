@@ -208,6 +208,7 @@ function UserBlock({ item }: { item: FeedItem }) {
         <span className="glyph">›</span>
         <b>ты</b>
         {item.ts && <span className="block-meta mono">{timeOf(item.ts)}</span>}
+        {item.data['queued'] === true && <span className="block-meta queued" data-tip="Отправлено во время хода — агент прочитает на следующем шаге, без отдельного хода">в очереди</span>}
       </div>
       {imgs.length > 0 && (
         <div className="msg-imgs">

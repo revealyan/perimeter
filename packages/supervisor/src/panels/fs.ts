@@ -3,9 +3,9 @@
 import type { Dirent } from 'node:fs';
 import { lstat, open, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { StringDecoder } from 'node:string_decoder';
 import { fsError, PanelError } from './errors.js';
 import { resolveInRoot } from './paths.js';
+import { decodeText, type TextEncodingName } from './textEncoding.js';
 
 /** Сколько записей папки отдаём максимум (дальше — truncated). */
 export const LIST_LIMIT = 2000;
@@ -39,6 +39,8 @@ export interface FsReadResult {
   truncated: boolean;
   binary: boolean;
   content: string;
+  /** кодировка, в которой прочитан текст (utf-8 — обычно; windows-1251 — кириллица с Windows) */
+  encoding?: TextEncodingName;
 }
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -134,18 +136,15 @@ export async function readFileIn(root: string, rel: string, maxBytes = READ_DEFA
   const data = Buffer.concat(chunks, n);
   const truncated = n > maxBytes;
   const body = truncated ? data.subarray(0, maxBytes) : data;
-  const binary = body.subarray(0, BINARY_PROBE_BYTES).includes(0);
-  let content = '';
-  if (!binary) {
-    // StringDecoder.write не отдаёт неполный хвостовой символ — обрыв на лимите не даёт U+FFFD в конце
-    content = truncated ? new StringDecoder('utf8').write(body) : body.toString('utf8');
-  }
+  // кодировка: BOM, UTF-8, иначе Windows-1251/1252 (кириллица с Windows) — textEncoding.ts; бинарный — без текста
+  const t = decodeText(body, truncated, BINARY_PROBE_BYTES);
   return {
     path: r.rel,
     size: Math.max(st.size, n),
     mtimeMs: Math.round(st.mtimeMs),
     truncated,
-    binary,
-    content,
+    binary: t.binary,
+    content: t.binary ? '' : t.content,
+    ...(t.binary ? {} : { encoding: t.encoding }),
   };
 }

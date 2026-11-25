@@ -32,6 +32,19 @@ function managerWith(script: (hooks: EngineHooks, fake: Fake) => AsyncGenerator<
 }
 
 describe('engine+manager: маппинг SDK → протокол', () => {
+  it('реплика человека — по контракту SDKUserMessage (parent_tool_use_id: null): иначе Claude Code не подмешивает её в идущий ход', async () => {
+    const { m, fake, factory } = managerWith(async function* () {
+      yield { type: 'system', subtype: 'init', tools: [], mcp_servers: [], model: 'm', permissionMode: 'default' };
+      await sleep(300);
+    });
+    const id = m.create({ factory });
+    await sleep(30);
+    m.send(id, 'два');
+    await sleep(30);
+    expect(fake.received.at(-1)).toMatchObject({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: 'два' } });
+    await m.stop(id);
+  });
+
   it('thinking: текст с подписью уходит в журнал (транскрипт его не хранит); пустой — добирается из дельт потока', async () => {
     const { m, events, factory } = managerWith(async function* () {
       yield { type: 'system', subtype: 'init', tools: [], mcp_servers: [], model: 'claude-opus-5-5', permissionMode: 'default' };

@@ -22,7 +22,18 @@ const readBody = (req: IncomingMessage): Promise<string> => new Promise((resolve
   req.on('end', () => resolve(s));
 });
 
-export async function startFakeGateway(opts: { reply?: string; /** перед текстом — блок размышлений с подписью */ thinking?: string; /** доп. заголовки ответа /v1/messages (лимиты подписки и т. п.) */ headers?: Record<string, string> } = {}): Promise<{ url: string; requests: CapturedRequest[]; close: () => Promise<void> }> {
+/** Ответ шлюза по сценарию: задержка, вызов инструмента (stop_reason tool_use) или текст. */
+export interface ScriptedReply { delayMs?: number; toolUse?: { name: string; input: Record<string, unknown> }; text?: string }
+
+export async function startFakeGateway(opts: {
+  reply?: string;
+  /** перед текстом — блок размышлений с подписью */
+  thinking?: string;
+  /** доп. заголовки ответа /v1/messages (лимиты подписки и т. п.) */
+  headers?: Record<string, string>;
+  /** сценарий по номеру основного запроса (с инструментами в теле): нет — обычный текстовый ответ */
+  script?: (n: number, body: Record<string, unknown>) => ScriptedReply | undefined;
+} = {}): Promise<{ url: string; requests: CapturedRequest[]; close: () => Promise<void> }> {
   const requests: CapturedRequest[] = [];
   const reply = opts.reply ?? 'ок';
   const srv = createServer(async (req, res) => {
@@ -61,8 +72,22 @@ export async function startFakeGateway(opts: { reply?: string; /** перед т
       res.end(JSON.stringify({ id, type: 'message', role: 'assistant', model, content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', stop_sequence: null, usage }));
       return;
     }
+    const mainN = requests.filter((r) => r.tools.length > 0).length;
+    const plan = tools.length > 0 ? opts.script?.(mainN, body) : undefined;
+    if (plan?.delayMs) await new Promise((r) => setTimeout(r, plan.delayMs));
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', ...(opts.headers ?? {}) });
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (plan?.toolUse) {
+      send('message_start', { type: 'message_start', message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: 1 } } });
+      send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: `toolu_fake_${requests.length}`, name: plan.toolUse.name, input: {} } });
+      send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(plan.toolUse.input) } });
+      send('content_block_stop', { type: 'content_block_stop', index: 0 });
+      send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use', stop_sequence: null }, usage: { output_tokens: 5 } });
+      send('message_stop', { type: 'message_stop' });
+      res.end();
+      return;
+    }
+    const replyText = plan?.text ?? reply;
     send('message_start', { type: 'message_start', message: { id, type: 'message', role: 'assistant', model, content: [], stop_reason: null, stop_sequence: null, usage: { ...usage, output_tokens: 1 } } });
     let idx = 0;
     if (opts.thinking !== undefined) {
@@ -73,7 +98,7 @@ export async function startFakeGateway(opts: { reply?: string; /** перед т
       idx++;
     }
     send('content_block_start', { type: 'content_block_start', index: idx, content_block: { type: 'text', text: '' } });
-    send('content_block_delta', { type: 'content_block_delta', index: idx, delta: { type: 'text_delta', text: reply } });
+    send('content_block_delta', { type: 'content_block_delta', index: idx, delta: { type: 'text_delta', text: replyText } });
     send('content_block_stop', { type: 'content_block_stop', index: idx });
     send('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } });
     send('message_stop', { type: 'message_stop' });

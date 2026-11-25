@@ -1,6 +1,7 @@
 // Вкладка «Файлы» (BD2, P2): поиск «Найти файл · Ctrl P», «Все / Изменённые N», ленивое дерево
 // с git-метками и точками на папках, просмотр файла с номерами строк, подсветкой и отметками правок сессии,
 // «@ Упомянуть в сообщении» и «Открыть в VS Code».
+import { encodingLabel } from '../lib/panelData';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as RKeyboardEvent, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
 import type { SessionView, SupervisorClient } from '../supervisor';
 import { isRemote } from '../supervisor';
@@ -440,6 +441,7 @@ function FileView({ model, session, changes, abs, mark, vsUrl, vsTip, env, onMen
         {data?.truncated && (
           <div className="fv-note">Файл большой — показано начало: {fmtSize(Math.min(READ_MAX_BYTES, data.content.length))} из {fmtSize(data.size)}.</div>
         )}
+        {encodingLabel(data?.encoding) && <div className="fv-note">Кодировка: {encodingLabel(data?.encoding)}</div>}
         {lines.length === 0 || (lines.length === 1 && lines[0] === '')
           ? <div className="fv-note">Пустой файл.</div>
           : (

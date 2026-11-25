@@ -26,6 +26,7 @@ const { startFakeGateway } = await import('./fake-gateway.js');
 const home = process.env['PERIMETER_E2E_HOME']!;
 const nowSec = Math.floor(Date.now() / 1000);
 // заголовки лимитов подписки, как у api.anthropic.com: Claude Code (вход токеном подписки) шлёт по ним rate_limit_event
+const gwq = await startFakeGateway({ script: (n) => (n === 1 ? { delayMs: 2500, toolUse: { name: 'Read', input: { file_path: join(process.env['PERIMETER_E2E_HOME']!, 'proj', 'a.txt') } } } : { delayMs: 200, text: `ответ #${n}` }) });
 const gw = await startFakeGateway({ thinking: 'думаю над ответом', headers: {
   'anthropic-ratelimit-unified-status': 'allowed', 'anthropic-ratelimit-unified-representative-claim': 'five_hour', 'anthropic-ratelimit-unified-reset': String(nowSec + 3600),
   'anthropic-ratelimit-unified-5h-status': 'allowed', 'anthropic-ratelimit-unified-5h-utilization': '0.42', 'anthropic-ratelimit-unified-5h-reset': String(nowSec + 3600),
@@ -38,6 +39,8 @@ mkdirSync(proj, { recursive: true });
 writeFileSync(join(dir, 'profiles.json'), JSON.stringify({ version: 1, profiles: [
   { name: 'gw', env: { ANTHROPIC_BASE_URL: gw.url, ANTHROPIC_AUTH_TOKEN: 'fake', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
     modelsSource: 'manual', models: [{ id: 'glm-5.4', efforts: [] }], maxOutput: 64000, maxOutputHigh: 128000 },
+  // реплика посреди хода: шлюз сначала отвечает вызовом инструмента с задержкой (ход длинный)
+  { name: 'gwq', env: { ANTHROPIC_BASE_URL: gwq.url, ANTHROPIC_AUTH_TOKEN: 'fake', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' }, modelsSource: 'manual', models: [{ id: 'glm-5.4', efforts: [] }] },
   // «подписка» — токен подписки (как claude setup-token), API — тот же подставной шлюз
   { name: 'sub', env: { ANTHROPIC_BASE_URL: gw.url, CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-fake', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
     modelsSource: 'manual', models: [{ id: 'claude-sonnet-5-5', efforts: [] }] },
@@ -120,6 +123,26 @@ try {
   const ue = await usageEv.catch(() => null);
   const wins = ((ue?.['usage'] as { windows?: Array<{ id: string; pct: number }> } | undefined)?.windows ?? []).map((w) => `${w.id}:${w.pct}`);
   check('лимиты подписки из ответов API доходят до клиента (event:usage)', JSON.stringify(wins) === JSON.stringify(['five_hour:42', 'seven_day:17']), JSON.stringify(wins));
+
+  // реплика посреди хода: Claude Code подмешивает её в следующий запрос того же хода — без отдельного хода
+  // (23.11 без parent_tool_use_id: null она откладывалась/терялась, а потом отвечалась вторым ходом)
+  const gq = gwq;
+  writeFileSync(join(proj, 'a.txt'), 'hello');
+  const c4 = await cmd({ type: 'cmd:session.new', profile: 'gwq', model: 'glm-5.4', cwd: proj }).catch(() => null);
+  if (c4) {
+    const sid4 = String(((c4['data'] as Record<string, unknown>)['sessionId'] ?? (c4['data'] as { session?: { id?: string } }).session?.id));
+    const done4 = waitFor((f) => f.type === 'event:turn.result' && f['sessionId'] === sid4);
+    await cmd({ type: 'cmd:message.send', sessionId: sid4, text: 'раз' });
+    await new Promise((r) => setTimeout(r, 1200));
+    await cmd({ type: 'cmd:message.send', sessionId: sid4, text: 'два' });
+    await done4;
+    await new Promise((r) => setTimeout(r, 3000));
+    const qm = gq.requests.filter((r) => r.tools.length > 0).map((r) => (JSON.stringify(r.body['messages']).includes('два') ? 'с «два»' : 'без «два»'));
+    check('реплика посреди хода — в том же ходе, без лишнего хода', JSON.stringify(qm) === JSON.stringify(['без «два»', 'с «два»']), JSON.stringify(qm));
+  } else {
+    check('реплика посреди хода — в том же ходе, без лишнего хода', false, 'не создалась сессия на профиле gwq');
+  }
+  await gq.close();
 
   // размышления: что записал Claude Code в транскрипт, и что отдаёт supervisor
   const projects = join(home, '.claude', 'projects');

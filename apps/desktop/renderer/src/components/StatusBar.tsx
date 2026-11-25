@@ -41,7 +41,14 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
   // лимиты аккаунта активной сессии (если у аккаунта включены и известны)
   const prof = session?.profile ? client.profiles.find((p) => p.name === session.profile) : undefined;
   const usageOn = prof !== undefined && prof.usageSource !== undefined && prof.usage !== false;
-  useEffect(() => { if (usageOn && prof && client.status === 'live' && !client.usage.has(prof.name)) void client.loadUsage(prof.name); }, [usageOn, prof?.name, client.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  // лимиты видимого аккаунта: при переходе на сессию (если устарели) и раз в минуту, пока окно на виду
+  useEffect(() => {
+    if (!usageOn || !prof || client.status !== 'live') return;
+    const name = prof.name;
+    client.refreshUsageIfStale(name);
+    const t = setInterval(() => { if (!document.hidden) client.refreshUsageIfStale(name); }, 60_000);
+    return () => clearInterval(t);
+  }, [usageOn, prof?.name, client.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const usage = usageOn && prof ? client.usage.get(prof.name)?.usage : undefined;
   const usageWins = usage ? barWindows(usage.windows) : [];
   const usageTip = usage ? `Лимиты аккаунта: ${usage.windows.map((w) => `${w.label} — ${Math.round(w.pct)}%${w.resetsAt ? `, сброс ${resetIn(w.resetsAt)}` : ''}`).join('; ')}` : '';

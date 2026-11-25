@@ -1,0 +1,26 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SessionManager } from '../src/session/manager.js';
+import { sdkFactory } from '../src/session/sdk.js';
+import { startFakeGateway } from './fake-gateway.ts';
+const home = mkdtempSync(join(tmpdir(), 'pm-q-'));
+writeFileSync(join(home, 'a.txt'), 'hello');
+const gw = await startFakeGateway({ script: (n) => (n === 1 ? { delayMs: 2500, toolUse: { name: 'Read', input: { file_path: join(home, 'a.txt') } } } : { delayMs: 300, text: `ответ #${n}` }) });
+const env = { PATH: process.env.PATH!, HOME: home, CLAUDE_CONFIG_DIR: join(home, '.claude'), ANTHROPIC_BASE_URL: gw.url, ANTHROPIC_AUTH_TOKEN: 'x', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+const m = new SessionManager();
+const ev: string[] = [];
+m.subscribe((e) => {
+  if (e.type === 'event:turn.result') ev.push('turn.result');
+  if (e.type === 'event:message.assistant') ev.push(`assistant:${e.block.type === 'text' ? e.block.text : e.block.type === 'tool_use' ? 'tool_use ' + e.block.name : e.block.type}`);
+});
+const id = m.create({ name: 'q', cwd: home, factory: sdkFactory({ model: 'glm-5.4', cwd: home, env, permissionMode: 'acceptEdits', includePartialMessages: false }) });
+await new Promise((r) => setTimeout(r, 300));
+m.send(id, 'раз');
+await new Promise((r) => setTimeout(r, 1200));
+m.send(id, 'два');
+await new Promise((r) => setTimeout(r, 10000));
+const main = gw.requests.filter((r) => r.tools.length > 0);
+console.log('запросов:', main.length, main.map((r) => (JSON.stringify(r.body['messages']).includes('два') ? 'с «два»' : 'без «два»')).join(', '));
+console.log('события:', ev.join(' → '));
+await m.stop(id); await gw.close(); process.exit(0);

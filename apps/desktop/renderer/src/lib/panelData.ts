@@ -5,7 +5,11 @@
 export interface FsEntry { name: string; kind: 'file' | 'dir' | 'link'; size: number; mtimeMs: number }
 /** truncated — папка большая, отдано начало (total — всего записей) */
 export interface FsList { root: string; path: string; entries: FsEntry[]; truncated: boolean; total: number }
-export interface FsRead { path: string; size: number; truncated: boolean; binary: boolean; content: string }
+export interface FsRead {
+  path: string; size: number; truncated: boolean; binary: boolean; content: string;
+  /** в какой кодировке прочитан (supervisor определяет: utf-8, windows-1251…); старый supervisor — нет поля */
+  encoding?: string;
+}
 export interface GitFile { path: string; status: string }
 export interface GitStatus { root: string; branch: string | null; files: GitFile[] }
 export interface PortInfo { port: number; host: string; process?: string }
@@ -44,7 +48,21 @@ export function parseFsRead(d: unknown): FsRead | null {
     truncated: o['truncated'] === true,
     binary: o['binary'] === true,
     content,
+    ...(typeof o['encoding'] === 'string' && o['encoding'] ? { encoding: o['encoding'] } : {}),
   };
+}
+
+/** Подпись кодировки в шапке просмотра: обычный UTF-8 не подписываем. */
+export function encodingLabel(enc: string | undefined): string | null {
+  switch (enc) {
+    case undefined: case 'utf-8': return null;
+    case 'utf-8-bom': return 'UTF-8 с BOM';
+    case 'utf-16le': return 'UTF-16 LE';
+    case 'utf-16be': return 'UTF-16 BE';
+    case 'windows-1251': return 'Windows-1251 (кириллица)';
+    case 'windows-1252': return 'Windows-1252';
+    default: return enc;
+  }
 }
 
 /** ack cmd:git.status → { root, branch, files: [{ path, status }] } */

@@ -162,6 +162,11 @@ export class WssServer {
   private readonly usageFetcher: WssOptions['usageFetcher'];
   /** последние известные лимиты по аккаунту (внутреннее имя; '' — аккаунт supervisor'а) */
   private readonly usage = new Map<string, UsageInfo>();
+  /**
+   * Аккаунты подписки, у которых /usage недоступен (вход токеном: rate_limits_available=false) — не поднимаем ради
+   * него Claude Code на каждый запрос (секунды ожидания при переключении сессий); лимиты — из ответов API в сессиях.
+   */
+  private readonly usageApiDead = new Set<string>();
   private readonly git: GitRunner;
   /** идущие запросы списка моделей по аккаунту — не плодим процессы claude на двойной клик */
   private modelsInflight = new Map<string, Promise<void>>();
@@ -621,12 +626,18 @@ export class WssServer {
           this.sendReply(ws, this.ack(f.id, { usage: known }));
           return;
         }
+        // подписка, у которой /usage недоступен, — без похода к Claude Code (кроме явного «обновить»)
+        if (source === 'claude' && this.usageApiDead.has(key) && f.refresh !== true) {
+          this.sendReply(ws, this.ack(f.id, known ? { usage: known } : { usage: null, note: 'Лимиты появятся после первого хода в сессии этого аккаунта: Claude Code узнаёт их из ответов API' }));
+          return;
+        }
         void (async () => {
           let got: UsageInfo | null = null;
           let err = '';
           if (this.usageFetcher) {
             try { got = await this.usageFetcher(f.profile); } catch (e) { err = String((e as Error)?.message ?? e).slice(0, 200); }
           }
+          if (source === 'claude') { if (got) this.usageApiDead.delete(key); else this.usageApiDead.add(key); }
           if (got) {
             this.usage.set(key, got);
             this.broadcastUsage(internal, got);

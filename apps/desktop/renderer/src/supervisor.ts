@@ -12,6 +12,7 @@ import { LOCAL, connections } from './connections';
 import { cacheStore, type CachedMeta } from './cache';
 import { playTurnDone, turnSoundMode } from './lib/sound';
 import { attachOrphanResults, feedFits, feedSignature, mergeCachedFeed, toCachedSession, type CachedSession } from './lib/cacheModel';
+import { clearQueued } from './lib/queued';
 
 /** closed — клиент закрыт намеренно (подключение выключено/удалено), не переподключается */
 export type ConnStatus = 'connecting' | 'live' | 'reconnecting' | 'closed';
@@ -447,7 +448,7 @@ export class SupervisorClient {
   /** последний снимок контекста по сессии (для кольца правой панели) */
   contextBySession = new Map<string, Record<string, unknown>>();
   /** лимиты аккаунтов (usage): последнее известное + пояснение, когда данных нет */
-  usage = new Map<string, { usage: UsageInfo | null; note?: string }>();
+  usage = new Map<string, { usage: UsageInfo | null; note?: string; fetchedAt: number }>();
   private usageInFlight = new Map<string, Promise<void>>();
 
   /**
@@ -1068,13 +1069,19 @@ export class SupervisorClient {
    * Лимиты аккаунта (usage). Повторный вызов, пока первый идёт, ждёт его же; ошибки молча — лимиты справочные.
    * refresh — спросить источник заново (иначе supervisor отдаёт свежее минуты из памяти).
    */
+  /** Лимиты аккаунта старше maxAgeMs (или их нет) — подгрузить; свежие — не трогать. */
+  refreshUsageIfStale(profile: string, maxAgeMs = 60_000): void {
+    const cur = this.usage.get(profile);
+    if (this.status === 'live' && (!cur || Date.now() - cur.fetchedAt > maxAgeMs)) void this.loadUsage(profile);
+  }
+
   loadUsage(profile: string, refresh = false): Promise<void> {
     const cur = this.usageInFlight.get(profile);
     if (cur) return cur;
     const p = this.request({ type: 'cmd:profile.usage', profile, ...(refresh ? { refresh: true } : {}) }, 40_000).then(
       (r) => {
         const d = r.data as { usage?: UsageInfo | null; note?: string } | undefined;
-        this.usage.set(profile, { usage: d?.usage ?? null, ...(d?.note ? { note: d.note } : {}) });
+        this.usage.set(profile, { usage: d?.usage ?? null, ...(d?.note ? { note: d.note } : {}), fetchedAt: Date.now() });
         this.notify();
       },
       () => undefined,
@@ -1232,7 +1239,10 @@ export class SupervisorClient {
   sendText(sid: string, text: string, images?: string[]): void {
     const s = this.sessions.get(sid);
     this.localId += 1;
-    s?.items.push({ id: `local-${this.localId}`, kind: 'user', data: { text, ...(images?.length ? { images } : {}) }, ts: Date.now() });
+    // во время хода — «в очереди»: Claude Code подмешает реплику на следующем шаге этого же хода (пометка снимется,
+    // когда агент продолжит)
+    const busy = s !== undefined && (s.state === 'working' || s.state === 'waiting_permission' || s.state === 'waiting_input');
+    s?.items.push({ id: `local-${this.localId}`, kind: 'user', data: { text, ...(images?.length ? { images } : {}), ...(busy ? { queued: true } : {}) }, ts: Date.now() });
     if (s) { s.lastActivity = Date.now(); s.sortAt = s.lastActivity; }
     void this.fire({ type: 'cmd:message.send', sessionId: sid, text: text || ' ', ...(images?.length ? { images } : {}) }, 'Сообщение не отправлено');
     this.notify();
@@ -1473,7 +1483,7 @@ export class SupervisorClient {
     }
     // лимиты аккаунта пришли с ответом API в чьей-то сессии
     if (f.type === 'event:usage') {
-      this.usage.set(f.profile, { usage: f.usage });
+      this.usage.set(f.profile, { usage: f.usage, fetchedAt: Date.now() });
       this.notify();
       return;
     }
@@ -1626,6 +1636,7 @@ export class SupervisorClient {
         break;
       case 'event:message.assistant': {
         s.printing = null; // полный блок пришёл — призрак сбрасываем
+        clearQueued(s, true);
         delete s.retry; // модель ответила — повторы позади
         const b = e.block;
         if (b.type === 'text') s.items.push({ id: `i${e.seq}`, kind: 'text', data: { text: b.text }, ts: e.ts });
@@ -1637,6 +1648,8 @@ export class SupervisorClient {
         if (e.kind === 'text') s.printing = (s.printing ?? '') + e.delta;
         break;
       case 'event:message.user': {
+        // результат инструмента ушёл — следующий запрос к модели возьмёт реплики «в очереди»
+        for (const it of s.items) if (it.kind === 'user' && it.data['queued'] === true) it.data['queuedArmed'] = true;
         // результат приклеиваем к карточке вызова (по toolUseId), отдельного блока не плодим
         const target = e.toolUseId ? [...s.items].reverse().find((it) => it.kind === 'tool-use' && it.data['id'] === e.toolUseId) : undefined;
         if (target) {
@@ -1666,6 +1679,9 @@ export class SupervisorClient {
       case 'event:turn.result':
         s.printing = null;
         delete s.retry;
+        clearQueued(s, false);
+        // ход закончился — лимиты его аккаунта изменились: обновить, если их показываем (z.ai событий не шлёт)
+        if (s.profile && this.usage.has(s.profile)) setTimeout(() => this.refreshUsageIfStale(s.profile!, 0), 1500);
         if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
           window.perimeterIPC?.notify(`perimeter · ${s.name}`, e.subtype === 'success' ? 'ход завершён' : 'ход прерван');
         }

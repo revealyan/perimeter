@@ -152,3 +152,19 @@ describe('WSS: лимиты аккаунта', () => {
     expect(s.data.note).toMatch(/после первого хода/);
   });
 });
+
+describe('WSS: лимиты подписки без /usage — не дёргаем Claude Code зря', () => {
+  it('первый раз спросили и узнали, что /usage недоступен — дальше без похода (кроме «обновить»)', async () => {
+    let fetched = 0;
+    const { send, wait } = await wssWith({ usageFetcher: async () => { fetched++; return null; } });
+    send({ id: 'a', type: 'cmd:profile.usage', profile: 'sub' });
+    await wait((f) => f['id'] === 'a');
+    send({ id: 'b', type: 'cmd:profile.usage', profile: 'sub' });
+    const b = await wait<{ data: { note?: string } }>((f) => f['id'] === 'b');
+    expect(fetched).toBe(1);
+    expect(b.data.note).toMatch(/после первого хода/);
+    send({ id: 'c', type: 'cmd:profile.usage', profile: 'sub', refresh: true });
+    await wait((f) => f['id'] === 'c');
+    expect(fetched).toBe(2);
+  });
+});

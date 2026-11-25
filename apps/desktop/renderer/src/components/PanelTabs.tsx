@@ -112,6 +112,7 @@ export function RunningCmdCard({ r, now, onReveal, onStop }: { r: RunningCmd; no
 const PLAN_ICON: Record<string, IconName> = { completed: 'check', in_progress: 'loader', pending: 'circleDashed' };
 
 export function TasksTab({ session, client, plan, onReveal }: { session: SessionView; client: SupervisorClient; plan: Plan | null; onReveal: (itemId: string) => void }) {
+  const [showDone, setShowDone] = useState(false);
   const running = runningCommands(session.items);
   const now = useNow(running.length > 0);
   return (
@@ -128,11 +129,21 @@ export function TasksTab({ session, client, plan, onReveal }: { session: Session
           <>
             <div className="plan-bar" aria-hidden>{plan.items.map((t, i) => <span key={i} className={`pb-${t.status}`} />)}</div>
             <ul className="plan">
-              {plan.items.map((t, i) => (
-                <li key={i} className={`plan-${t.status}`}>
+              {/* в работе и несделанные — сверху; выполненные — свёрнуты (список не «жиреет») */}
+              {[...plan.items.filter((t) => t.status === 'in_progress'), ...plan.items.filter((t) => t.status === 'pending')].map((t, i) => (
+                <li key={`o${i}`} className={`plan-${t.status}`}>
                   <Icon name={PLAN_ICON[t.status] ?? 'circleDashed'} size={14} />
                   <span>{t.status === 'in_progress' && t.active ? t.active : t.text}</span>
                 </li>
+              ))}
+              {plan.done > 0 && (
+                <li className="plan-completed plan-done-toggle">
+                  <Icon name="check" size={14} />
+                  <button type="button" className="link-btn" onClick={() => setShowDone(!showDone)}>выполнено: {plan.done} — {showDone ? 'скрыть' : 'показать'}</button>
+                </li>
+              )}
+              {showDone && plan.items.filter((t) => t.status === 'completed').map((t, i) => (
+                <li key={`d${i}`} className="plan-completed"><Icon name="check" size={14} /><span>{t.text}</span></li>
               ))}
             </ul>
           </>

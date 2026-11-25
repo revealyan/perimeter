@@ -35,7 +35,7 @@ export function UsageBars({ client, profile }: { client: SupervisorClient; profi
 /** Сводка лимитов в шапке карточки аккаунта: окна мини-шкалами (видно и у свёрнутой карточки). */
 export function UsageMini({ client, profile }: { client: SupervisorClient; profile: string }) {
   const live = client.status === 'live';
-  useEffect(() => { if (live && !client.usage.has(profile)) void client.loadUsage(profile); }, [live, profile]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (live) client.refreshUsageIfStale(profile); }, [live, profile]); // eslint-disable-line react-hooks/exhaustive-deps
   const u = client.usage.get(profile)?.usage;
   if (!u || u.windows.length === 0) return null;
   return (

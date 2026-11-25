@@ -1374,3 +1374,10 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 /* обновление приложения */
 .sb-update { color: var(--accent-fg); background: var(--accent); border-radius: 4px; padding: 0 8px; font-weight: 600; }
 .update-row .field-inline { align-items: center; gap: 10px; }
+/* реплика, отправленная во время хода, — до того как агент её взял */
+.block-meta.queued { color: var(--warn); border: 1px solid var(--warn-soft); border-radius: 4px; padding: 0 6px; }
+/* компактный список задач: сразу видны текущая и ближайшие, выполненные — числом */
+.task-strip-list { padding-top: 4px; }
+.task-strip-done { opacity: .7; }
+.task-strip-more { list-style: none; padding-left: 22px; }
+.task-strip-toggle { font-size: var(--fs-sm); }

@@ -16,6 +16,9 @@ export interface PermissionResult {
 export interface SdkUserInput {
   type: 'user';
   message: { role: 'user'; content: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }> };
+  /** по контракту SDKUserMessage: реплика человека — не ответ субагенту */
+  parent_tool_use_id?: null;
+  session_id?: string;
 }
 
 /** system/init — паспорт окружения (единственный system-подтип, который мапим в P0). */
