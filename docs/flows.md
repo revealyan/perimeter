@@ -26,6 +26,7 @@
 2. `git tag v<x.y.z> && git push origin v<x.y.z>`.
 3. CI (`.github/workflows/release.yml`): тесты → typecheck → сборка → electron-builder (NSIS + portable) →
    **сразу опубликованный** GitHub Release (latest) с exe + SHA256SUMS и заметками из коммитов (с v0.2.5; до него — черновик).
+   Публикует `gh release create` (с v0.2.8; softprops на v0.2.7 задвоил релиз): проверяет тег = версия, все файлы на месте.
 4. Откат = прошлый релиз там же. Плохой релиз — снять в GitHub (Releases → Delete) и выпустить следующий.
 
 - Правила: тег = версия package.json; electron-builder сам не публикует (`EP_PUBLISH=never`); electron запинен.

@@ -15,10 +15,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Windows-раннер CI: PowerShell в режиме pipe иногда стартует дольше 20 с (23.11 — v0.2.1 упал на «hi в выводе») */
 const SLOW = process.platform === 'win32' ? 3 : 1;
 
-async function until(pred: () => boolean, ms = 15_000, what = 'условие'): Promise<void> {
+/** Windows-раннер CI: шелл в режиме pipe изредка молчит целиком (25.11 — v0.2.8 упал, 60 с без «hi») — повторяем тест. */
+const RETRY = process.platform === 'win32' ? 2 : 0;
+
+async function until(pred: () => boolean, ms = 15_000, what = 'условие', seen?: () => string): Promise<void> {
   const deadline = Date.now() + ms;
   while (!pred()) {
-    if (Date.now() > deadline) throw new Error(`не дождались: ${what}`);
+    // что успели получить — иначе по логу CI не понять, шелл молчал или ответил не тем
+    if (Date.now() > deadline) throw new Error(`не дождались: ${what}${seen ? `; вывод: ${JSON.stringify(seen().slice(-400))}` : ''}`);
     await sleep(25);
   }
 }
@@ -78,7 +82,7 @@ const codeOf = (fn: () => unknown): string | undefined => {
   return undefined;
 };
 
-describe('терминал: режим pipe', () => {
+describe('терминал: режим pipe', { retry: RETRY }, () => {
   it('open → input `echo hi` → в output есть hi → close → exit; кадры seq 0 без sessionId', async () => {
     const root = tmp();
     mkdirSync(join(root, 'sub'));
@@ -92,7 +96,7 @@ describe('терминал: режим pipe', () => {
 
     await ready(a); // человек печатает после приглашения — иначе «hi» встанет за приглашением, а не с начала строки
     m.input(t.termId, 'echo hi\r', SID);
-    await until(() => HI_LINE.test(a.out(t.termId)), 20_000 * SLOW, 'hi в выводе');
+    await until(() => HI_LINE.test(a.out(t.termId)), 20_000 * SLOW, 'hi в выводе', () => a.out(t.termId));
     // эхо набора делает supervisor (дисциплина линии), шелл сам не эхоит
     expect(a.out(t.termId)).toContain('echo hi\r\n');
 
@@ -114,7 +118,7 @@ describe('терминал: режим pipe', () => {
     const t = await m.open({ sessionId: SID, root, cols: 80, rows: 24, subscriber: a });
     await ready(a);
     m.input(t.termId, 'echo hi\r');
-    await until(() => HI_LINE.test(a.out()), 20_000, 'hi у открывшего');
+    await until(() => HI_LINE.test(a.out()), 20_000, 'hi у открывшего', () => a.out());
     await sleep(100);
     expect(b.frames).toEqual([]);
 
@@ -164,7 +168,7 @@ describe('терминал: режим pipe', () => {
     const t = await m.open({ sessionId: SID, root, cols: 80, rows: 24, subscriber: a });
     await ready(a);
     m.input(t.termId, 'echo hi\r');
-    await until(() => HI_LINE.test(a.out()), 20_000, 'hi');
+    await until(() => HI_LINE.test(a.out()), 20_000, 'hi', () => a.out());
     m.input(t.termId, 'exit 3\r');
     await until(() => a.exit(t.termId) !== undefined, 10_000, 'exit');
     expect(a.exit(t.termId)!.code).toBe(3);

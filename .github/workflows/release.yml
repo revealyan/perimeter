@@ -24,23 +24,33 @@ jobs:
       - run: npm run dist -w @perimeter/desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # публикацию делает отдельный шаг (softprops) — сам electron-builder на теге лезет публиковать сам и падает
+          # публикацию делает отдельный шаг (gh) — сам electron-builder на теге лезет публиковать сам и падает
           EP_PUBLISH: never
       - name: контрольные суммы
         shell: bash
         run: |
           cd apps/dist-desktop
           sha256sum perimeter-setup-*.exe perimeter-portable-*.exe > SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
-        with:
-          # публикуем сразу (владелец 2026-11-25: «сам паблишь» — черновики жать руками надоело); заметки — из коммитов
-          draft: false
-          make_latest: true
-          generate_release_notes: true
-          # latest.yml и .blockmap — для автообновления установленной версии (electron-updater)
-          files: |
-            apps/dist-desktop/perimeter-setup-*.exe
-            apps/dist-desktop/perimeter-setup-*.exe.blockmap
-            apps/dist-desktop/latest.yml
-            apps/dist-desktop/perimeter-portable-*.exe
-            apps/dist-desktop/SHA256SUMS.txt
+      # Публикация — gh, а не softprops: 25.11 softprops на v0.2.7 создал два релиза с одним тегом (в одном — только
+      # .blockmap) и упал на «already_exists». gh с файлами сам делает черновик → заливает → публикует; повторный
+      # прогон того же тега дозаливает файлы (--clobber), а не плодит релизы.
+      - name: релиз
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          v="$(node -p "require('./apps/desktop/package.json').version")"
+          [ "$tag" = "v$v" ] || { echo "тег $tag не совпадает с версией package.json ($v)"; exit 1; }
+          cd apps/dist-desktop
+          # latest.yml и .blockmap — для автообновления установленной версии (electron-updater); публикуем сразу
+          # (владелец 2026-11-25: «сам паблишь»), заметки — из коммитов
+          files=("perimeter-setup-$v.exe" "perimeter-setup-$v.exe.blockmap" latest.yml "perimeter-portable-$v.exe" SHA256SUMS.txt)
+          for f in "${files[@]}"; do [ -f "$f" ] || { echo "нет файла $f"; ls; exit 1; }; done
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            gh release create "$tag" "${files[@]}" --title "$tag" --generate-notes --latest --verify-tag
+          fi
