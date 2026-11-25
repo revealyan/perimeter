@@ -12,6 +12,8 @@ import { McpSettings } from './McpSettings';
 import { ProjectsSettings } from './ProjectsSettings';
 import { ServerInstall } from './ServerInstall';
 import { COMPOSER_STYLE_HINT, COMPOSER_STYLE_LABEL, type ComposerStyle } from '../lib/composerModel';
+import { updateText } from '../lib/updateModel';
+import { useUpdate } from '../lib/useUpdate';
 
 /** Ошибка из моста Electron приходит с префиксом «Error invoking remote method …: Error: » — показываем суть. */
 export function ipcError(e: unknown): string {
@@ -22,6 +24,37 @@ export function ipcError(e: unknown): string {
 
 type Page = { kind: 'general' } | { kind: 'conn'; id: EnvId } | { kind: 'add' };
 type ConnTab = 'link' | 'accounts' | 'mcp' | 'projects';
+
+/** Версия приложения и обновление: проверить сейчас, перезапустить, когда скачано. */
+function UpdateRow() {
+  const u = useUpdate();
+  const ipcU = window.perimeterIPC;
+  const [autoSrv, setAutoSrv] = useState<boolean | null>(null);
+  useEffect(() => { void ipcU?.appSettings?.().then((x) => setAutoSrv(x.autoServerUpdate)).catch(() => undefined); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!u) return null;
+  return (
+    <>
+    <div className="field update-row">
+      <span>Версия <b className="mono">{u.current}</b></span>
+      <span className="field-inline">
+        <span className={u.state === 'error' ? 'warn-text' : u.state === 'ready' ? 'ok-text' : 'dim'}>{updateText(u)}</span>
+        <span className="spacer" />
+        {u.state === 'ready' && <button className="btn sm primary" onClick={() => void ipcU?.updateInstall?.()}>Перезапустить и обновить</button>}
+        {u.state !== 'off' && u.state !== 'ready' && u.state !== 'downloading' && (
+          <button className="btn sm" disabled={u.state === 'checking'} onClick={() => void ipcU?.updateCheck?.()}>Проверить обновления</button>
+        )}
+        {u.state === 'off' && u.url && <button className="btn sm" onClick={() => void ipcU?.openExternal?.(u.url!)}>Страница релизов</button>}
+      </span>
+    </div>
+    {autoSrv !== null && (
+      <label className="acct-row acct-check">
+        <input type="checkbox" checked={autoSrv} onChange={(e) => void ipcU?.setAppSettings?.({ autoServerUpdate: e.target.checked }).then((x) => setAutoSrv(x.autoServerUpdate))} />
+        <span>Обновлять supervisor на серверах сам — после обновления приложения, при подключении и когда в сессиях нет идущих ходов</span>
+      </label>
+    )}
+    </>
+  );
+}
 
 function General({ composerStyle, onComposerStyle }: { composerStyle: ComposerStyle; onComposerStyle: (v: ComposerStyle) => void }) {
   const [theme, setTheme] = useState(localStorage.getItem('perimeter:theme') ?? 'dark');
@@ -40,6 +73,7 @@ function General({ composerStyle, onComposerStyle }: { composerStyle: ComposerSt
   return (
     <>
       <h3 className="st-h">Общие</h3>
+      <UpdateRow />
       <div className="field">
         <span>Поле ввода</span>
         <div className="seg env-seg" role="radiogroup" aria-label="Поле ввода">

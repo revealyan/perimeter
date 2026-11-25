@@ -24,6 +24,7 @@ import { groupOf } from './lib/sessionGroups';
 import { afterPaint, requestComposerInsert } from './composeBus';
 import { COMPOSER_STYLE_KEY, draftKey, parseComposerStyle, type ComposerStyle } from './lib/composerModel';
 import { localSupBusy } from './lib/localSup';
+import { serverUpdateText, type ServerUpdateEvent } from './lib/updateModel';
 
 const PANEL_KEY = 'perimeter:panel';
 
@@ -251,6 +252,12 @@ export default function App() {
   const openTab = (tab: PanelTab) => setPanel((s) => ({ ...s, open: true, tab }));
   const openChange = (path: string) => { setSelectedFile(path); openTab('changes'); };
   /** Прокрутить ленту к элементу (из панели); на весь экран — сначала свернуть. */
+  // автообновление supervisor'а на серверах (main): ход — тостом; готово/не вышло — само скрывается через 12 с
+  const [srvUpd, setSrvUpd] = useState<ServerUpdateEvent[]>([]);
+  useEffect(() => window.perimeterIPC?.onServerUpdate?.((e) => {
+    setSrvUpd((l) => [...l.filter((x) => x.connId !== e.connId), e]);
+    if (e.state === 'done' || e.state === 'failed') setTimeout(() => setSrvUpd((l) => l.filter((x) => x !== e)), 12_000);
+  }), []);
   // список задач над полем ввода (как в Desktop): план активной сессии
   const activePlan = active ? extractPlan(active.items) : null;
   const reveal = (itemId: string) => {
@@ -347,6 +354,12 @@ export default function App() {
               {!(client.environment === 'local' && localSupBusy(localSup)) && <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>}
             </div>
           )}
+          {srvUpd.map((u, i) => (
+            <div key={`srvupd-${u.connId}`} className="toast" role="status" style={{ bottom: 56 + i * 52, top: 'auto' }}>
+              <span className={u.state === 'failed' ? 'warn-text' : u.state === 'done' ? 'ok-text' : undefined}>{serverUpdateText(u, envLabel(u.connId))}</span>
+              <button className="toast-x" aria-label="Скрыть" onClick={() => setSrvUpd((l) => l.filter((x) => x.connId !== u.connId))}>×</button>
+            </div>
+          ))}
           {enabled.filter((e) => clients.get(e).lastError !== '').map((e, i) => (
             <div key={e} className="toast" role="alert" style={i > 0 ? { top: 56 + i * 52 } : undefined}>
               <span>{enabled.length > 1 && <b>{envShort(e)}: </b>}{clients.get(e).lastError}</span>

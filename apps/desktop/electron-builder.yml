@@ -39,3 +39,12 @@ nsis:
 
 portable:
   artifactName: perimeter-portable-${version}.${ext}
+
+# обновление приложения (electron-updater, main/updater.mjs): с этим провайдером сборка кладёт рядом latest.yml и
+# .blockmap (CI прикладывает их к релизу), а в приложение — app-update.yml. Сам builder ничего не публикует
+# (EP_PUBLISH=never) — релиз публикует отдельный шаг CI.
+publish:
+  provider: github
+  owner: revealyan
+  repo: perimeter
+  releaseType: release

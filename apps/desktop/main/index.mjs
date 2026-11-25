@@ -1,7 +1,7 @@
 // Electron-оболочка: окно + подключения VPS (у каждого свой встроенный SSH-туннель) + локальный supervisor.
 // Логика — в рендерере (React); supervisor-соединение рендерер тянет сам на 127.0.0.1:<localPort подключения>.
 import { app, BrowserWindow, Notification, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
-import { existsSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -11,6 +11,9 @@ import { ServerInstaller } from './server-install.mjs';
 import { ensureLocalServer, localSupervisorEnv } from './local-server.mjs';
 import { installKeyWithPassword } from './ssh-keys.mjs';
 import { LocalSupervisor } from './local-sup.mjs';
+import { AppUpdater } from './updater.mjs';
+import { ServerAutoUpdate } from './server-autoupdate.mjs';
+import electronUpdater from 'electron-updater';
 
 // имя приложения (профиль %APPDATA%/Perimeter вместо scoped-имени пакета «@perimeter/desktop»)
 app.setName('Perimeter');
@@ -103,10 +106,13 @@ function send(channel, value) {
 }
 
 // Подключения VPS (как в Happy): несколько, у каждого свой туннель; «Этот компьютер» — локальный supervisor выше.
+/** автообновление supervisor'а на серверах — создаётся ниже, рядом с установщиком */
+let serverAuto = null;
 const conns = new ConnectionManager({
   TunnelClass: Tunnel,
   onChange: (list) => {
     send('perimeter:connections', list);
+    serverAuto?.onConnections(list);
     const f = conns.first();
     const raw = !f ? 'нет конфига' : !f.conn.enabled ? 'down' : f.raw || 'connecting';
     if (raw !== tunnelStatus) {
@@ -146,6 +152,7 @@ function createWindow() {
     setLocalStatus(localSup.status);
     send('perimeter:connections', conns.list());
     send('perimeter:forwards', conns.forwards());
+    send('perimeter:update', appUpdater.state);
   });
 }
 
@@ -222,6 +229,27 @@ ipcMain.handle('perimeter:unforward-port', (_e, arg) => conns.unforwardPort(port
 ipcMain.handle('perimeter:forwards', () => conns.forwards());
 // supervisor на сервере (АДР 004): статус, установка/обновление и откат — только по кнопке в настройках подключения
 const installer = new ServerInstaller();
+
+// настройки приложения (не окна): автообновление supervisor'а на серверах — по умолчанию да
+const appSettingsFile = join(app.getPath('userData'), 'app-settings.json');
+let appSettings = { autoServerUpdate: true };
+try { appSettings = { ...appSettings, ...JSON.parse(readFileSync(appSettingsFile, 'utf8')) }; } catch { /* нет файла — умолчания */ }
+ipcMain.handle('perimeter:app-settings', () => appSettings);
+ipcMain.handle('perimeter:set-app-settings', (_e, patch) => {
+  if (patch && typeof patch.autoServerUpdate === 'boolean') appSettings.autoServerUpdate = patch.autoServerUpdate;
+  try { writeFileSync(appSettingsFile, JSON.stringify(appSettings, null, 2)); } catch { /* профиль недоступен — до перезапуска */ }
+  return appSettings;
+});
+// supervisor на серверах — за приложением: подключились, там прошлая версия, ходов нет — обновляем (server-autoupdate.mjs)
+serverAuto = new ServerAutoUpdate({
+  installer,
+  config: (id) => conns.config(id),
+  enabled: () => appSettings.autoServerUpdate !== false,
+  packaged: app.isPackaged,
+  onEvent: (e) => send('perimeter:server-update', e),
+  onLine: (id, line) => send('perimeter:server-log', { connId: id, line }),
+});
+serverAuto.onConnections(conns.list());
 const connOf = (id) => conns.config(String(id ?? ''));
 const logTo = (id) => (line) => send('perimeter:server-log', { connId: id, line });
 ipcMain.handle('perimeter:server-status', async (_e, id) => {
@@ -273,7 +301,19 @@ ipcMain.handle('perimeter:open-external', async (_e, url) => {
   return true;
 });
 
-app.whenReady().then(createWindow);
+// обновление приложения: установленная версия (NSIS) — сама, portable и dev — нет (updater.mjs)
+const appUpdater = new AppUpdater({
+  updater: app.isPackaged ? electronUpdater.autoUpdater : null,
+  version: app.getVersion(),
+  portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
+  packaged: app.isPackaged,
+  onState: (s) => send('perimeter:update', s),
+});
+ipcMain.handle('perimeter:update-state', () => appUpdater.state);
+ipcMain.handle('perimeter:update-check', () => appUpdater.check());
+ipcMain.handle('perimeter:update-install', () => appUpdater.install());
+
+app.whenReady().then(() => { createWindow(); appUpdater.start(); });
 app.on('before-quit', () => stopLocalSupervisor());
 app.on('window-all-closed', () => {
   conns.stopAll();

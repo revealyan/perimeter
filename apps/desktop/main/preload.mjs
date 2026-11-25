@@ -52,6 +52,24 @@ contextBridge.exposeInMainWorld('perimeterIPC', {
   removeConnection(id) {
     return ipcRenderer.invoke('perimeter:remove-connection', id);
   },
+  /** настройки приложения (автообновление supervisor'а на серверах) */
+  appSettings() { return ipcRenderer.invoke('perimeter:app-settings'); },
+  setAppSettings(patch) { return ipcRenderer.invoke('perimeter:set-app-settings', patch); },
+  /** ход автообновления supervisor'а на сервере: waiting | updating | done | failed */
+  onServerUpdate(cb) {
+    const h = (_e, ev) => cb(ev);
+    ipcRenderer.on('perimeter:server-update', h);
+    return () => ipcRenderer.removeListener('perimeter:server-update', h);
+  },
+  /** обновление приложения: состояние, подписка, проверить сейчас, перезапустить и поставить */
+  updateState() { return ipcRenderer.invoke('perimeter:update-state'); },
+  updateCheck() { return ipcRenderer.invoke('perimeter:update-check'); },
+  updateInstall() { return ipcRenderer.invoke('perimeter:update-install'); },
+  onUpdate(cb) {
+    const h = (_e, s) => cb(s);
+    ipcRenderer.on('perimeter:update', h);
+    return () => ipcRenderer.removeListener('perimeter:update', h);
+  },
   /** вход паролем один раз → ключ приложения на сервере; пароль дальше не живёт */
   setupKey(c) {
     return ipcRenderer.invoke('perimeter:setup-key', c);

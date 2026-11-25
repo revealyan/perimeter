@@ -1371,3 +1371,6 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .srv-feat > input, .srv-feat > .dot { margin-top: 4px; justify-self: center; }
 .srv-feat-why { display: block; }
 .srv-feat-state { white-space: nowrap; }
+/* обновление приложения */
+.sb-update { color: var(--accent-fg); background: var(--accent); border-radius: 4px; padding: 0 8px; font-weight: 600; }
+.update-row .field-inline { align-items: center; gap: 10px; }

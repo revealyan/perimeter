@@ -37,7 +37,10 @@ jobs:
           draft: false
           make_latest: true
           generate_release_notes: true
+          # latest.yml и .blockmap — для автообновления установленной версии (electron-updater)
           files: |
             apps/dist-desktop/perimeter-setup-*.exe
+            apps/dist-desktop/perimeter-setup-*.exe.blockmap
+            apps/dist-desktop/latest.yml
             apps/dist-desktop/perimeter-portable-*.exe
             apps/dist-desktop/SHA256SUMS.txt

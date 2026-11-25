@@ -8,6 +8,8 @@ import { ctxView, fmtBytes, fmtCost, fmtDuration, fmtTokens } from '../lib/toolF
 import { changesTotal, fileChanges, sessionCost } from '../lib/feedModel';
 import { tokensLabel } from '../lib/outputLimit';
 import { barWindows, resetIn, shortLabel, usageTone } from '../lib/usageModel';
+import { updateBadge } from '../lib/updateModel';
+import { useUpdate } from '../lib/useUpdate';
 import type { PanelTab } from '../lib/panelLayout';
 import { modeLabel } from './SessionHeader';
 import { Icon } from './Icon';
@@ -34,6 +36,7 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
     return () => { live = false; clearInterval(t); };
   }, [client, client.status]);
   const fwd = ports.of(env).length;
+  const upd = updateBadge(useUpdate());
   const ctx = session ? ctxView(client.contextBySession.get(session.id)) : null;
   // лимиты аккаунта активной сессии (если у аккаунта включены и известны)
   const prof = session?.profile ? client.profiles.find((p) => p.name === session.profile) : undefined;
@@ -119,6 +122,9 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
         </span>
       )}
       {client.pool && client.pool.target > 0 && <><span className="sb-sep sb-server">·</span><span className="dim sb-server" data-tip="Пул тёплых процессов: новая сессия стартует мгновенно">тёплых {client.pool.warm}/{client.pool.target}</span></>}
+      {upd && (upd.action
+        ? <button className="sb-item sb-update" onClick={() => void window.perimeterIPC?.updateInstall?.()} data-tip="Новая версия скачана — перезапуск поставит её. Сессии на серверах не прервутся">{upd.text}</button>
+        : <span className="sb-item dim" data-tip="Новая версия качается в фоне">{upd.text}</span>)}
       <button className="icon-btn sm" onClick={onSettings} data-tip="Настройки" data-key="Ctrl ," aria-label="Настройки"><Icon name="settings" size={14} /></button>
     </footer>
   );

@@ -76,6 +76,14 @@ declare global {
       removeConnection?(id: string): Promise<boolean>;
       /** пробное ssh-подключение и проверка, что на VPS слушает supervisor; ничего не сохраняет */
       testConnection?(c: PerimeterConnInput): Promise<{ ok: boolean; message: string }>;
+      appSettings?(): Promise<{ autoServerUpdate: boolean }>;
+      setAppSettings?(patch: { autoServerUpdate?: boolean }): Promise<{ autoServerUpdate: boolean }>;
+      onServerUpdate?(cb: (e: { connId: string; state: 'waiting' | 'updating' | 'done' | 'failed'; message?: string; version?: string }) => void): () => void;
+      /** обновление приложения (electron-updater): состояние для окна */
+      updateState?(): Promise<PerimeterUpdateState>;
+      updateCheck?(): Promise<PerimeterUpdateState>;
+      updateInstall?(): Promise<boolean>;
+      onUpdate?(cb: (s: PerimeterUpdateState) => void): () => void;
       /** вход паролем один раз → ключ приложения в authorized_keys; путь ключа — для подключения */
       setupKey?(c: { host: string; port?: number; user: string; password: string }): Promise<{ ok: boolean; message: string; privateKeyPath?: string }>;
       /** нативный выбор файла ключа ssh (открывается в ~/.ssh); null — отменили */
@@ -97,3 +105,14 @@ declare global {
     };
   }
 }
+
+/** Обновление приложения (main/updater.mjs). */
+type PerimeterUpdateState = {
+  state: 'off' | 'idle' | 'checking' | 'latest' | 'available' | 'downloading' | 'ready' | 'error';
+  current: string;
+  version?: string;
+  percent?: number;
+  reason?: string;
+  message?: string;
+  url?: string;
+};
