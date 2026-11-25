@@ -33,7 +33,10 @@ jobs:
           sha256sum perimeter-setup-*.exe perimeter-portable-*.exe > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          # публикуем сразу (владелец 2026-11-25: «сам паблишь» — черновики жать руками надоело); заметки — из коммитов
+          draft: false
+          make_latest: true
+          generate_release_notes: true
           files: |
             apps/dist-desktop/perimeter-setup-*.exe
             apps/dist-desktop/perimeter-portable-*.exe

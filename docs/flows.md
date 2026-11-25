@@ -25,8 +25,8 @@
 1. Поднял версию в `apps/desktop/package.json` → коммит → push в main.
 2. `git tag v<x.y.z> && git push origin v<x.y.z>`.
 3. CI (`.github/workflows/release.yml`): тесты → typecheck → сборка → electron-builder (NSIS + portable) →
-   черновик GitHub Release с exe + SHA256SUMS.
-4. Владелец: заметки → Publish. Откат = прошлый релиз там же.
+   **сразу опубликованный** GitHub Release (latest) с exe + SHA256SUMS и заметками из коммитов (с v0.2.5; до него — черновик).
+4. Откат = прошлый релиз там же. Плохой релиз — снять в GitHub (Releases → Delete) и выпустить следующий.
 
 - Правила: тег = версия package.json; electron-builder сам не публикует (`EP_PUBLISH=never`); electron запинен.
 - Перед тегом: `npm test` → `npm run typecheck` → живой прогон packaged-механики: `ensureLocalServer` +
