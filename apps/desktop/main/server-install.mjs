@@ -48,7 +48,23 @@ export function parseStatus(text) {
     packagesMissing: (kv.packages_missing ?? '').split(/[ ,]+/).filter(Boolean),
     pkgManager: kv.pkg_manager === 'apt' ? 'apt' : 'none',
     ...(kv.linger !== undefined ? { linger: kv.linger } : {}),
+    // возможности сервера группами (git · терминал · браузер · docker); старый скрипт их не сообщает — нет поля
+    ...(Object.keys(kv).some((k) => k.startsWith('feature_')) ? { features: featuresOf(kv) } : {}),
   };
+}
+
+/** Группы возможностей сервера, которые установщик умеет ставить. */
+export const FEATURES = ['git', 'terminal', 'browser', 'docker'];
+
+/** feature_<имя>=ok|missing|manual (+ feature_<имя>_why) → { имя: { state, why? } }. */
+export function featuresOf(kv) {
+  const out = {};
+  for (const f of FEATURES) {
+    const v = kv[`feature_${f}`];
+    if (v !== 'ok' && v !== 'missing' && v !== 'manual') continue;
+    out[f] = { state: v, ...(kv[`feature_${f}_why`] ? { why: kv[`feature_${f}_why`] } : {}) };
+  }
+  return out;
 }
 
 /**
@@ -227,6 +243,27 @@ export class ServerInstaller {
       const b = await this.bundle();
       const script = readFileSync(join(b.dir, 'perimeter-server.sh'), 'utf8');
       const r = await this.withSsh(conn, (c) => runScript(c, script, ['rollback', serviceUserArg(conn), String(conn.remotePort ?? 8790)], { onLine }));
+      const ok = r.code === 0;
+      return { ok, message: resultMessage(r.lines, ok) };
+    } catch (e) {
+      return { ok: false, message: String(e?.message ?? e) };
+    } finally {
+      this.busy.delete(conn.id);
+    }
+  }
+
+  /**
+   * Поставить возможность сервера (git · terminal · browser · docker) — скрипт сам знает, какие пакеты и шаги;
+   * терминал после пересборки node-pty перезапускает службу. → { ok, message }
+   */
+  async feature(conn, name, onLine) {
+    if (!FEATURES.includes(name)) return { ok: false, message: `неизвестная возможность «${name}»` };
+    if (this.busy.has(conn.id)) return { ok: false, message: 'на этом сервере уже идёт установка' };
+    this.busy.add(conn.id);
+    try {
+      const b = await this.bundle();
+      const script = readFileSync(join(b.dir, 'perimeter-server.sh'), 'utf8');
+      const r = await this.withSsh(conn, (c) => runScript(c, script, ['feature', name, serviceUserArg(conn)], { onLine }));
       const ok = r.code === 0;
       return { ok, message: resultMessage(r.lines, ok) };
     } catch (e) {

@@ -8,6 +8,7 @@ import { fetchZaiUsage, usageFromUsageApi } from './usage.js';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
 import { StateStore } from './state-store.js';
 import { ThinkingStore } from './thinkingStore.js';
+import { ensureDockerHost } from './dockerEnv.js';
 import { createDelegateServerConfig, DELEGATE_SERVER, type DelegateDeps } from './delegate.js';
 import { TASK_TOOLS } from './session/tasks.js';
 import { WssServer } from './wss.js';
@@ -69,6 +70,8 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
   const projects = new ProjectStore(opts.projectsFile ?? join(homedir(), '.perimeter', 'projects.json'));
 
   // параметры субпроцесса: сессионные настройки поверх профиля аккаунта (мультиакк)
+  // тёплые процессы пула — пересоздать (подменяется, когда пул создан ниже)
+  let resetWarm: () => void = () => undefined;
   const buildOptions = (sess: SpawnInfo) => {
     // сессия без профиля — аккаунт supervisor'а: его модель по умолчанию (правится из UI) важнее PERIMETER_MODEL
     // у аккаунта из profiles.json — его модель по умолчанию (applyProfile); PERIMETER_MODEL — только аккаунту supervisor'а:
@@ -76,6 +79,8 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
     const baseModel = sess.profile === undefined ? profiles.get(profiles.baseName())?.model ?? base.model : undefined;
     const picked = applyProfile(profiles.get(sess.profile), { ...(baseModel !== undefined || sess.model !== undefined ? { model: sess.model ?? baseModel } : {}) });
     // включён 1M у модели аккаунта — Claude Code получает `<id>[1m]`; своя модель — базу и окно контекста
+    // docker для агентов появился после старта (кнопка в установщике) — DOCKER_HOST детям; тёплые процессы прогреты без него
+    if (ensureDockerHost()) resetWarm();
     // окно автокомпакта: сессии → своей модели → умолчание аккаунта (Claude Code берёт его при старте процесса)
     const launch = profiles.launchSession(sess.profile, picked.model, sess.compactWindow);
     const withProfile = {
@@ -181,9 +186,10 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
       }, warmFor)
     : null;
   pool?.fill();
+  resetWarm = () => { for (const p of warmFor) pool?.reset?.(p); };
 
   const rbProfile = opts.rbProfileDir ?? process.env['PERIMETER_RB_PROFILE'] ?? join(homedir(), '.perimeter', 'rb-profile');
-  const rbrowser = new RemoteBrowserManager({ launcher: chromiumLauncher(findChromium(), rbProfile === 'temp' ? {} : { profileDir: rbProfile }) });
+  const rbrowser = new RemoteBrowserManager({ launcher: chromiumLauncher(undefined, rbProfile === 'temp' ? {} : { profileDir: rbProfile }) });
 
   const server = new WssServer(manager, {
     ensureDirs: true,

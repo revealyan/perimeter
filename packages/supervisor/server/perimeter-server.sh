@@ -247,6 +247,7 @@ cmd_status() {
   pkgcheck python3 python3
   log "packages_missing=${missing# }"
   if command -v apt-get >/dev/null 2>&1; then log "pkg_manager=apt"; else log "pkg_manager=none"; fi
+  features_status
   port=${2:-}
   if [ -f "$UNIT_FILE" ]; then
     log "unit=yes"
@@ -405,8 +406,8 @@ cmd_rollback() {
 
 # системные пакеты (git/xvfb/gcc/make/python3): root — ставит сразу, не-root — sudo без пароля,
 # иначе — команда для рук. Только apt (Debian/Ubuntu); прочее — тоже командой для рук.
-cmd_packages() {
-  [ $# -gt 0 ] || fail "не указаны пакеты"
+# Пакеты через apt: root — ставит, sudo -n — ставит, иначе — команда для рук.
+apt_install() {
   manual="apt-get install -y $*"
   command -v apt-get >/dev/null 2>&1 || fail "пакеты ставятся не через apt — выполните на сервере: $manual"
   if [ "$(id -u)" = 0 ]; then
@@ -414,15 +415,129 @@ cmd_packages() {
     apt-get update -qq </dev/null || true
     log "ставлю пакеты: $*"
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" </dev/null || fail "apt-get install не прошёл (строки выше); руками: $manual"
-    log "готово: пакеты поставлены ($*)"
+    log "пакеты поставлены: $*"
   elif sudo -n true </dev/null 2>/dev/null; then
     log "ставлю пакеты через sudo: $*"
     sudo -n apt-get update -qq </dev/null || true
     DEBIAN_FRONTEND=noninteractive sudo -n apt-get install -y --no-install-recommends "$@" </dev/null || fail "sudo apt-get install не прошёл (строки выше); руками: $manual"
-    log "готово: пакеты поставлены ($*)"
+    log "пакеты поставлены: $*"
   else
     fail "поставить может только root: выполните на сервере и повторите — $manual"
   fi
+}
+
+cmd_packages() {
+  [ $# -gt 0 ] || fail "не указаны пакеты"
+  apt_install "$@"
+  log "готово: пакеты поставлены ($*)"
+}
+
+# ─── возможности сервера (группы): git · терминал · браузер · docker ─────────────────────────────────────────
+# Пользователь выбирает не пакеты, а что ему нужно; статус — ok (есть) / missing (поставим кнопкой) /
+# manual (только руками — с причиной в feature_<имя>_why).
+
+os_id() { (. /etc/os-release 2>/dev/null; printf '%s' "${ID:-}"); }
+
+find_browser() {
+  for b in chromium google-chrome google-chrome-stable chrome-headless-shell; do
+    p=$(command -v "$b" 2>/dev/null || true)
+    case $p in '' | /snap/*) ;; *) printf '%s' "$p"; return 0 ;; esac
+  done
+  if [ -n "$SVC_HOME" ] && [ -x "$SVC_HOME/.local/bin/chrome-headless-shell" ]; then printf '%s' "$SVC_HOME/.local/bin/chrome-headless-shell"; fi
+}
+
+pty_built() {
+  [ -n "$BASE" ] || return 1
+  [ -f "$BASE/current/node_modules/node-pty/build/Release/pty.node" ] && return 0
+  ls "$BASE"/current/node_modules/node-pty/prebuilds/linux-*/*.node >/dev/null 2>&1
+}
+
+features_status() {
+  if command -v git >/dev/null 2>&1; then log "feature_git=ok"; else log "feature_git=missing"; fi
+  if pty_built; then log "feature_terminal=ok"; else log "feature_terminal=missing"; fi
+  br=$(find_browser)
+  if [ -n "$br" ] && command -v Xvfb >/dev/null 2>&1; then
+    log "feature_browser=ok"
+  elif [ -z "$br" ] && [ "$(os_id)" = ubuntu ]; then
+    log "feature_browser=manual"
+    log "feature_browser_why=в Ubuntu chromium — только snap, а под службой он не стартует; браузер — вручную (docs/deploy.md, «Удалённый браузер»)"
+  else
+    log "feature_browser=missing"
+  fi
+  uid=$(id -u "$SVC" 2>/dev/null || true)
+  if [ -n "$uid" ] && [ -S "/run/user/$uid/docker.sock" ]; then
+    log "feature_docker=ok"
+  elif [ "$MODE" != system ]; then
+    log "feature_docker=manual"
+    log "feature_docker_why=docker для агентов ставит root — подключитесь под root"
+  elif ! command -v apt-get >/dev/null 2>&1; then
+    log "feature_docker=manual"
+    log "feature_docker_why=пакеты ставятся не через apt"
+  else
+    log "feature_docker=missing"
+  fi
+}
+
+feature_terminal() {
+  apt_install build-essential python3
+  [ -n "$BASE" ] && [ -d "$BASE/current" ] || fail "supervisor ещё не установлен — сначала «Установить»"
+  log "пересобираю node-pty (терминал с настоящим pty)…"
+  # заголовки Node — из своей сборки (в архиве nodejs.org есть include/node): без похода в сеть
+  as_svc env HOME="$SVC_HOME" PATH="$BASE/current/node/bin:/usr/bin:/bin" npm_config_nodedir="$BASE/current/node" \
+    sh -c "cd '$BASE/current' && npm rebuild node-pty --foreground-scripts" </dev/null 2>&1 | tail -n 8 | sed 's/^/  /'
+  pty_built || fail "node-pty не собрался (строки выше)"
+  log "перезапускаю supervisor — терминал подхватит настоящий pty"
+  sysd restart "$UNIT" </dev/null || fail "служба не перезапустилась"
+  log "готово: терминал с настоящим pty"
+}
+
+feature_browser() {
+  if [ "$(os_id)" = ubuntu ]; then
+    fail "в Ubuntu chromium — только snap, под службой он не стартует; браузер — вручную: docs/deploy.md, «Удалённый браузер»"
+  fi
+  apt_install chromium xvfb fonts-dejavu-core
+  log "готово: браузер на сервере (chromium) — откроется во вкладке «Браузер», перезапуск не нужен"
+}
+
+feature_docker() {
+  [ "$MODE" = system ] || fail "docker для агентов ставит root — подключитесь под root"
+  apt_install docker.io rootlesskit uidmap slirp4netns dbus-user-session
+  # системный dockerd (с правами root) агентам не нужен — только rootless под пользователем службы
+  systemctl disable --now docker.service docker.socket >/dev/null 2>&1 </dev/null || true
+  uid=$(id -u "$SVC")
+  grep -q "^$SVC:" /etc/subuid 2>/dev/null || usermod --add-subuids 100000-165535 "$SVC"
+  grep -q "^$SVC:" /etc/subgid 2>/dev/null || usermod --add-subgids 100000-165535 "$SVC"
+  loginctl enable-linger "$SVC" </dev/null || fail "не включился linger для $SVC — без него docker пользователя не живёт без входа"
+  i=0
+  while [ ! -S "/run/user/$uid/bus" ] && [ $i -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
+  [ -S "/run/user/$uid/bus" ] || fail "не поднялся systemd пользователя $SVC (нужен dbus-user-session)"
+  contrib=/usr/share/docker.io/contrib
+  tool=$(command -v dockerd-rootless-setuptool.sh 2>/dev/null || printf '%s' "$contrib/dockerd-rootless-setuptool.sh")
+  [ -f "$tool" ] || fail "нет dockerd-rootless-setuptool.sh (пакет docker.io)"
+  log "настраиваю docker без root под $SVC…"
+  runuser -u "$SVC" -- env HOME="$SVC_HOME" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+    PATH="$contrib:/usr/sbin:/usr/bin:/sbin:/bin" sh "$tool" install --skip-iptables </dev/null 2>&1 | tail -n 12 | sed 's/^/  /'
+  i=0
+  while [ ! -S "/run/user/$uid/docker.sock" ] && [ $i -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
+  [ -S "/run/user/$uid/docker.sock" ] || fail "docker без root не поднялся (строки выше)"
+  v=$(runuser -u "$SVC" -- env DOCKER_HOST="unix:///run/user/$uid/docker.sock" docker version --format '{{.Server.Version}}' </dev/null 2>/dev/null || true)
+  [ -n "$v" ] || fail "docker отвечает с ошибкой (строки выше)"
+  log "готово: docker $v для агентов без root (DOCKER_HOST=unix:///run/user/$uid/docker.sock — supervisor передаёт его сессиям сам)"
+}
+
+cmd_feature() {
+  name=${1:-}
+  if [ $# -gt 0 ]; then shift; fi
+  setup "${1:-}"
+  # уже есть — ничего не трогаем (кнопка могла устареть: статус смотрели раньше)
+  if features_status | grep -qx "feature_$name=ok"; then log "готово: уже есть ($name)"; return 0; fi
+  case $name in
+    git) apt_install git; log "готово: git" ;;
+    terminal) feature_terminal ;;
+    browser) feature_browser ;;
+    docker) feature_docker ;;
+    *) fail "неизвестная возможность «$name» (git | terminal | browser | docker)" ;;
+  esac
 }
 
 cmd=${1:-}
@@ -433,5 +548,6 @@ case $cmd in
   prepare) cmd_prepare "$@" ;;
   rollback) cmd_rollback "$@" ;;
   packages) cmd_packages "$@" ;;
-  *) fail "неизвестная команда «$cmd» (status | install | rollback | packages)" ;;
+  feature) cmd_feature "$@" ;;
+  *) fail "неизвестная команда «$cmd» (status | install | rollback | packages | feature)" ;;
 esac

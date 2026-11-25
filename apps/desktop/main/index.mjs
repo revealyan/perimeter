@@ -238,6 +238,11 @@ ipcMain.handle('perimeter:server-install', async (_e, arg) => {
 ipcMain.handle('perimeter:server-rollback', async (_e, id) => {
   try { return await installer.rollback(connOf(id), logTo(String(id))); } catch (e) { return { ok: false, message: e.message }; }
 });
+// возможности сервера группами (git · терминал · браузер · docker): что ставить — решает скрипт сервера
+ipcMain.handle('perimeter:server-feature', async (_e, arg) => {
+  const id = String(arg?.id ?? '');
+  try { return await installer.feature(connOf(id), String(arg?.name ?? ''), logTo(id)); } catch (e) { return { ok: false, message: e.message }; }
+});
 // «Установить недостающее» (git, xvfb, сборка node-pty…): только имена пакетов — без опций apt (ведущий «-»)
 ipcMain.handle('perimeter:server-packages', async (_e, arg) => {
   const id = String(arg?.id ?? '');

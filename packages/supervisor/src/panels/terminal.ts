@@ -20,6 +20,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { PROTOCOL_VERSION } from '@perimeter/protocol';
 import { PanelError } from './errors.js';
 import { resolveInRoot } from './paths.js';
+import { ensureDockerHost } from '../dockerEnv.js';
 
 export type TermMode = 'pty' | 'pipe';
 export type TermBackendPref = 'auto' | 'pty' | 'pipe';
@@ -252,6 +253,7 @@ export function resolveShell(platform: NodeJS.Platform = process.platform, env: 
 
 /** Окружение терминала: env supervisor'а + цветной xterm. */
 function termEnv(): Record<string, string> {
+  ensureDockerHost(); // docker для агентов мог появиться после старта supervisor'а
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   env.TERM = 'xterm-256color';

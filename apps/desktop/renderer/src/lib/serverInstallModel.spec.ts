@@ -56,3 +56,14 @@ describe('describeServer', () => {
     expect(packagesLine({ ...base, packagesMissing: ['git'], pkgManager: 'none' })).toContain('поставьте руками');
   });
 });
+
+describe('возможности сервера группами', () => {
+  it('по умолчанию отмечено то, чего нет и что ставится кнопкой; терминал при идущих ходах — переспросить', async () => {
+    const { defaultPick, featuresNeedConfirm } = await import('./serverInstallModel');
+    const st = { ok: true, busy: 1, features: { git: { state: 'ok' as const }, terminal: { state: 'missing' as const }, browser: { state: 'manual' as const, why: 'snap' }, docker: { state: 'missing' as const } } };
+    expect(defaultPick(st)).toEqual(['terminal', 'docker']);
+    expect(featuresNeedConfirm(st, ['terminal'])).toBe(true);
+    expect(featuresNeedConfirm(st, ['docker'])).toBe(false);
+    expect(featuresNeedConfirm({ ...st, busy: 0 }, ['terminal'])).toBe(false);
+  });
+});

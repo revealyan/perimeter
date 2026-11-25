@@ -85,6 +85,7 @@ declare global {
       /** поставить/обновить supervisor до версии приложения; serviceUser — при входе под root (сохраняется в подключении) */
       serverInstall?(connId: string, serviceUser?: string): Promise<{ ok: boolean; message: string; version?: string }>;
       serverPackages?(connId: string, pkgs: string[]): Promise<{ ok: boolean; message: string }>;
+      serverFeature?(connId: string, name: 'git' | 'terminal' | 'browser' | 'docker'): Promise<{ ok: boolean; message: string }>;
       /** вернуть прошлую версию supervisor'а на сервере */
       serverRollback?(connId: string): Promise<{ ok: boolean; message: string }>;
       /** ход установки/отката строками; возвращает отписку */

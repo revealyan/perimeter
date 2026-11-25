@@ -239,11 +239,14 @@ export function startXvfb(bin: string): Promise<{ display: string; kill: () => v
  * profileDir — постоянный профиль (куки, входы на сайты переживают закрытие браузера);
  * без него — временный, удаляется при выходе.
  */
-export function chromiumLauncher(path: string | null = findChromium(), opts: { profileDir?: string; display?: DisplayMode } = {}): BrowserLauncher {
+export function chromiumLauncher(path?: string | null, opts: { profileDir?: string; display?: DisplayMode } = {}): BrowserLauncher {
   return async () => {
+    // путь не задан — ищем при каждом запуске: браузер мог появиться после старта supervisor'а
+    // (кнопка «Браузер на сервере» в установщике) — без перезапуска службы
+    const exe = path === undefined ? findChromium() : path;
     const mode = opts.display ?? displayMode();
     let screen: { display: string; kill: () => void } | null = null;
-    if (mode === 'xvfb' && path) {
+    if (mode === 'xvfb' && exe) {
       try {
         screen = await startXvfb(findInPath('Xvfb') ?? 'Xvfb');
       } catch (err) {
@@ -251,7 +254,7 @@ export function chromiumLauncher(path: string | null = findChromium(), opts: { p
       }
     }
     try {
-      const b = await launchChromium(path, opts.profileDir, screen?.display);
+      const b = await launchChromium(exe, opts.profileDir, screen?.display);
       if (screen) {
         const s = screen;
         void b.exited.then(() => s.kill());

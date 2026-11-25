@@ -1364,3 +1364,10 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .usage-mini .usage-bar { width: 40px; }
 .usage-mini .tone-warn .mono { color: var(--warn); }
 .usage-mini .tone-err .mono { color: var(--err); }
+/* возможности сервера (группы): git · терминал · браузер · docker */
+.srv-features { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.srv-feat-title { font-weight: 600; margin-bottom: 2px; }
+.srv-feat { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: start; font-size: var(--fs-sm); line-height: 1.45; }
+.srv-feat > input, .srv-feat > .dot { margin-top: 4px; justify-self: center; }
+.srv-feat-why { display: block; }
+.srv-feat-state { white-space: nowrap; }

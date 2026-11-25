@@ -2,7 +2,7 @@
 // «Установить/Обновить», «Откатить», ход установки строками. Само ничего не ставит — только по кнопке.
 import { useEffect, useRef, useState } from 'react';
 import type { Conn } from '../connections';
-import { describeServer, packagesLine, type ServerStatus } from '../lib/serverInstallModel';
+import { FEATURES, defaultPick, describeServer, featuresNeedConfirm, packagesLine, type FeatureId, type ServerStatus } from '../lib/serverInstallModel';
 
 const TONE_CLASS = { ok: 'ok-text', warn: 'warn-text', err: 'err-text', dim: 'dim' } as const;
 
@@ -16,12 +16,14 @@ const errText = (e: unknown): string => {
 export function ServerInstall({ conn }: { conn: Conn }) {
   const ipcM = window.perimeterIPC;
   const [st, setSt] = useState<ServerStatus | null>(null);
-  const [busy, setBusy] = useState<'' | 'status' | 'install' | 'rollback' | 'packages'>('');
+  const [busy, setBusy] = useState<'' | 'status' | 'install' | 'rollback' | 'packages' | 'features'>('');
   const [log, setLog] = useState<string[]>([]);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [user, setUser] = useState(conn.serviceUser ?? '');
   /** вторая кнопка при идущих ходах: «Всё равно …» */
-  const [confirm, setConfirm] = useState<'' | 'install' | 'rollback'>('');
+  const [confirm, setConfirm] = useState<'' | 'install' | 'rollback' | 'features'>('');
+  /** выбранные возможности сервера (по умолчанию — всё недостающее, что ставится кнопкой) */
+  const [pick, setPick] = useState<FeatureId[] | null>(null);
   const logRef = useRef<HTMLPreElement>(null);
 
   const refresh = async (): Promise<void> => {
@@ -68,6 +70,36 @@ export function ServerInstall({ conn }: { conn: Conn }) {
     }
   };
 
+  // выбор по умолчанию — когда статус пришёл впервые (дальше выбор — за пользователем)
+  const picked = pick ?? (st ? defaultPick(st) : []);
+  const togglePick = (id: FeatureId, on: boolean) => setPick(on ? [...new Set([...picked, id])] : picked.filter((x) => x !== id));
+  /** Поставить выбранные возможности по очереди; ход — строками в логе блока. */
+  const runFeatures = async (): Promise<void> => {
+    if (!st || picked.length === 0 || !ipcM?.serverFeature) return;
+    if (featuresNeedConfirm(st, picked) && confirm !== 'features') { setConfirm('features'); return; }
+    setConfirm('');
+    setBusy('features');
+    setLog([]);
+    setResult(null);
+    const done: string[] = [];
+    try {
+      for (const id of FEATURES.map((f) => f.id).filter((x) => picked.includes(x))) {
+        const f = FEATURES.find((x) => x.id === id)!;
+        setLog((l) => [...l, `── ${f.label}`]);
+        const r = await ipcM.serverFeature(conn.id, id);
+        if (!r.ok) { setResult({ ok: false, text: `${f.label}: ${r.message}` }); return; }
+        done.push(f.label);
+      }
+      setResult({ ok: true, text: `Готово: ${done.join(', ')}` });
+      setPick(null);
+    } catch (e) {
+      setResult({ ok: false, text: errText(e) });
+    } finally {
+      setBusy('');
+      void refresh();
+    }
+  };
+
   const label = (kind: 'install' | 'rollback', text: string): string => {
     if (busy === kind) return kind === 'install' ? 'Ставлю…' : 'Откатываю…';
     return confirm === kind ? `Всё равно: ${text.charAt(0).toLowerCase()}${text.slice(1)}` : text;
@@ -92,7 +124,37 @@ export function ServerInstall({ conn }: { conn: Conn }) {
             </div>
           )}
           {v.notes.map((n) => <div key={n} className="warn-text acct-note">{n}</div>)}
-          {st.ok && packagesLine(st) && (
+          {st.ok && st.features && st.managed && (
+            <div className="srv-features" aria-label="Возможности сервера">
+              <div className="srv-feat-title">Возможности сервера</div>
+              {FEATURES.map((f) => {
+                const s = st.features?.[f.id];
+                if (!s) return null;
+                return (
+                  <label key={f.id} className={`srv-feat state-${s.state}`}>
+                    {s.state === 'missing'
+                      ? <input type="checkbox" checked={picked.includes(f.id)} disabled={busy !== ''} onChange={(e) => togglePick(f.id, e.target.checked)} />
+                      : <span className={`dot ${s.state === 'ok' ? 'dot-green' : 'dot-off'}`} aria-hidden />}
+                    <span className="srv-feat-body">
+                      <b>{f.label}</b> <span className="dim">— {f.gives}</span>
+                      {s.state === 'manual' && s.why && <span className="warn-text srv-feat-why">{s.why}</span>}
+                      {s.state === 'missing' && f.note && <span className="dim srv-feat-why">{f.note}</span>}
+                    </span>
+                    <span className={`srv-feat-state ${s.state === 'ok' ? 'ok-text' : 'dim'}`}>{s.state === 'ok' ? 'есть' : s.state === 'missing' ? 'нет' : 'вручную'}</span>
+                  </label>
+                );
+              })}
+              {defaultPick(st).length > 0 && (
+                <div className="conn-form-actions">
+                  <button className="btn sm primary" disabled={busy !== '' || picked.length === 0} onClick={() => void runFeatures()}>
+                    {busy === 'features' ? 'Ставлю…' : confirm === 'features' ? 'Всё равно: перезапустить и поставить' : `Поставить выбранное${picked.length ? ` (${picked.length})` : ''}`}
+                  </button>
+                  {confirm === 'features' && <span className="warn-text acct-note">Терминал перезапустит supervisor — идущие ходы прервутся.</span>}
+                </div>
+              )}
+            </div>
+          )}
+          {st.ok && !st.features && packagesLine(st) && (
             <div className="conn-form-actions">
               <span className="warn-text acct-note" style={{ flex: 1 }}>{packagesLine(st)}</span>
               {st.pkgManager !== 'none' && (st.packagesMissing?.length ?? 0) > 0 && (

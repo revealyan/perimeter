@@ -30,7 +30,25 @@ export interface ServerStatus {
   packagesMissing?: string[];
   /** apt — можно поставить кнопкой; none — только команды для рук */
   pkgManager?: 'apt' | 'none';
+  /** возможности сервера группами (новый скрипт сервера); нет — старый, тогда строка «не хватает» */
+  features?: Partial<Record<FeatureId, { state: 'ok' | 'missing' | 'manual'; why?: string }>>;
 }
+
+export type FeatureId = 'git' | 'terminal' | 'browser' | 'docker';
+
+/** Возможности сервера: пользователь выбирает, что ему нужно, а не пакеты (владелец 2026-11-25). */
+export const FEATURES: Array<{ id: FeatureId; label: string; gives: string; note?: string }> = [
+  { id: 'git', label: 'Git', gives: 'проекты из git, статус и дифы в «Файлах», worktree воркеров, перенос правок' },
+  { id: 'terminal', label: 'Терминал', gives: 'настоящий терминал (pty): цвета, vim, htop, интерактивные команды', note: 'перезапустит supervisor' },
+  { id: 'browser', label: 'Браузер на сервере', gives: 'превью и сайты прямо на сервере, вход в аккаунты через браузер (chromium + виртуальный экран)' },
+  { id: 'docker', label: 'Docker для агентов', gives: 'окружения: базы и сервисы в контейнерах — без прав root у агентов' },
+];
+
+/** Что отметить по умолчанию: всё, чего нет и что ставится кнопкой. */
+export const defaultPick = (st: ServerStatus): FeatureId[] => FEATURES.filter((f) => st.features?.[f.id]?.state === 'missing').map((f) => f.id);
+
+/** Нужен ли второй клик «всё равно»: выбранное перезапустит supervisor, а в сессиях идут ходы. */
+export const featuresNeedConfirm = (st: ServerStatus, pick: FeatureId[]): boolean => (st.busy ?? 0) > 0 && pick.includes('terminal');
 
 /** Зачем нужен каждый системный пакет (строка предложения в блоке). */
 export const PKG_WHY: Record<string, string> = {

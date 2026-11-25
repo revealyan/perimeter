@@ -86,6 +86,10 @@ contextBridge.exposeInMainWorld('perimeterIPC', {
   serverRollback(connId) {
     return ipcRenderer.invoke('perimeter:server-rollback', connId);
   },
+  /** поставить возможность сервера: git | terminal | browser | docker */
+  serverFeature(connId, name) {
+    return ipcRenderer.invoke('perimeter:server-feature', { id: connId, name });
+  },
   serverPackages(connId, pkgs) {
     return ipcRenderer.invoke('perimeter:server-packages', { id: connId, pkgs });
   },
