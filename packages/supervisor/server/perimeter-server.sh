@@ -465,7 +465,9 @@ features_status() {
     log "feature_browser=missing"
   fi
   uid=$(id -u "$SVC" 2>/dev/null || true)
-  if [ -n "$uid" ] && [ -S "/run/user/$uid/docker.sock" ]; then
+  # готов — только целиком: сокет, клиент docker и автозапуск службы пользователя (иначе повторный клик доделает)
+  if [ -n "$uid" ] && [ -S "/run/user/$uid/docker.sock" ] && command -v docker >/dev/null 2>&1 \
+    && [ -e "$SVC_HOME/.config/systemd/user/default.target.wants/docker.service" ]; then
     log "feature_docker=ok"
   elif [ "$MODE" != system ]; then
     log "feature_docker=manual"
@@ -481,10 +483,11 @@ features_status() {
 feature_terminal() {
   apt_install build-essential python3
   [ -n "$BASE" ] && [ -d "$BASE/current" ] || fail "supervisor ещё не установлен — сначала «Установить»"
-  log "пересобираю node-pty (терминал с настоящим pty)…"
-  # заголовки Node — из своей сборки (в архиве nodejs.org есть include/node): без похода в сеть
-  as_svc env HOME="$SVC_HOME" PATH="$BASE/current/node/bin:/usr/bin:/bin" npm_config_nodedir="$BASE/current/node" \
-    sh -c "cd '$BASE/current' && npm rebuild node-pty --foreground-scripts" </dev/null 2>&1 | tail -n 8 | sed 's/^/  /'
+  # node-pty — необязательный пакет: без компилятора npm ci его молча пропускает (папки нет вовсе), поэтому не rebuild,
+  # а install по lock-файлу версии — доставит только недостающее (Claude Code заново не качает)
+  log "ставлю node-pty (терминал с настоящим pty)…"
+  as_svc env HOME="$SVC_HOME" PATH="$BASE/current/node/bin:/usr/bin:/bin" \
+    sh -c "cd '$BASE/current' && npm install --no-save --no-audit --no-fund --foreground-scripts" </dev/null 2>&1 | tail -n 8 | sed 's/^/  /'
   pty_built || fail "node-pty не собрался (строки выше)"
   log "перезапускаю supervisor — терминал подхватит настоящий pty"
   sysd restart "$UNIT" </dev/null || fail "служба не перезапустилась"
@@ -501,7 +504,11 @@ feature_browser() {
 
 feature_docker() {
   [ "$MODE" = system ] || fail "docker для агентов ставит root — подключитесь под root"
-  apt_install docker.io rootlesskit uidmap slirp4netns dbus-user-session
+  # клиент docker в Debian 13 — отдельный пакет docker-cli (в Ubuntu — внутри docker.io)
+  dpkgs="docker.io rootlesskit uidmap slirp4netns dbus-user-session"
+  if apt-cache show docker-cli >/dev/null 2>&1; then dpkgs="$dpkgs docker-cli"; fi
+  # shellcheck disable=SC2086
+  apt_install $dpkgs
   # системный dockerd (с правами root) агентам не нужен — только rootless под пользователем службы
   systemctl disable --now docker.service docker.socket >/dev/null 2>&1 </dev/null || true
   uid=$(id -u "$SVC")
@@ -517,10 +524,15 @@ feature_docker() {
   log "настраиваю docker без root под $SVC…"
   runuser -u "$SVC" -- env HOME="$SVC_HOME" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
     PATH="$contrib:/usr/sbin:/usr/bin:/sbin:/bin" sh "$tool" install --skip-iptables </dev/null 2>&1 | tail -n 12 | sed 's/^/  /'
+  # setuptool Debian проверяет себя клиентом из contrib (его там нет) и выходит до «enable» — доделываем сами
+  uenv="HOME=$SVC_HOME XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+  # shellcheck disable=SC2086
+  runuser -u "$SVC" -- env $uenv systemctl --user enable --now docker.service </dev/null >/dev/null 2>&1 || fail "не включилась служба docker пользователя $SVC"
   i=0
   while [ ! -S "/run/user/$uid/docker.sock" ] && [ $i -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
   [ -S "/run/user/$uid/docker.sock" ] || fail "docker без root не поднялся (строки выше)"
-  v=$(runuser -u "$SVC" -- env DOCKER_HOST="unix:///run/user/$uid/docker.sock" docker version --format '{{.Server.Version}}' </dev/null 2>/dev/null || true)
+  dk=$(command -v docker 2>/dev/null) || fail "нет клиента docker (пакет docker-cli)"
+  v=$(runuser -u "$SVC" -- env HOME="$SVC_HOME" DOCKER_HOST="unix:///run/user/$uid/docker.sock" "$dk" version --format '{{.Server.Version}}' </dev/null 2>/dev/null || true)
   [ -n "$v" ] || fail "docker отвечает с ошибкой (строки выше)"
   log "готово: docker $v для агентов без root (DOCKER_HOST=unix:///run/user/$uid/docker.sock — supervisor передаёт его сессиям сам)"
 }
