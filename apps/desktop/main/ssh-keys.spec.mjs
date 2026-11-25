@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import ssh2 from 'ssh2';
 import { afterEach, describe, expect, it } from 'vitest';
-import { authorizeCommand, ensureAppKey, installKeyWithPassword, keyFileName } from './ssh-keys.mjs';
+import { authorizeCommand, ensureAppKey, generateValidPair, installKeyWithPassword, keyFileName, keyPairValid } from './ssh-keys.mjs';
 
 const { Server, utils } = ssh2;
 const dirs = [];
@@ -72,6 +72,35 @@ describe('ключ приложения', () => {
     expect(ensureAppKey(f).publicKey).toBe(a.publicKey);
     expect(keyFileName('185.119.17.115', 'root')).toBe('perimeter-root_at_185.119.17.115');
     expect(keyFileName('My Host!', 'yan')).toBe('perimeter-yan_at_my-host-');
+  });
+
+  it('битую пару генератора ssh2 (≈0,6%: открытый ключ 31 байт) не берём — генерируем заново; битый на диске — заменяем', () => {
+    const good = utils.generateKeyPairSync('ed25519', { comment: 'perimeter@test' });
+    // битая: открытая часть с длиной 31 вместо 32 — как у ssh2 при ведущем нулевом байте
+    const [t, b64] = good.public.split(' ');
+    const raw = Buffer.from(b64, 'base64');
+    const broken = Buffer.concat([raw.subarray(0, 19), Buffer.from([0, 0, 0, 31]), raw.subarray(24)]);
+    const bad = { private: good.private.replace(/AAAAC3NzaC1lZDI1NTE5AAAAI/, 'AAAAC3NzaC1lZDI1NTE5AAAAH'), public: `${t} ${broken.toString('base64')} perimeter@test` };
+    expect(keyPairValid(bad.private, bad.public)).toBe(false);
+    expect(keyPairValid(good.private, good.public)).toBe(true);
+    let calls = 0;
+    const gen = () => (++calls === 1 ? bad : good);
+    expect(generateValidPair('x', gen)).toBe(good);
+    expect(calls).toBe(2);
+    // битый ключ на диске (создан старой версией) — заменяется годным
+    const f = join(tmp(), 'k');
+    writeFileSync(f, bad.private); writeFileSync(`${f}.pub`, bad.public);
+    const r = ensureAppKey(f, 'perimeter@test');
+    expect(r.publicKey).not.toBe(bad.public);
+    expect(keyPairValid(readFileSync(f, 'utf8'), r.publicKey)).toBe(true);
+  });
+
+  it('много новых ключей подряд — все читаются (защита от бага генератора)', () => {
+    const d = tmp();
+    for (let i = 0; i < 300; i++) {
+      const r = ensureAppKey(join(d, `k${i}`), 'perimeter@test');
+      expect(keyPairValid(readFileSync(join(d, `k${i}`), 'utf8'), r.publicKey)).toBe(true);
+    }
   });
 
   it('команда отказывается от ключа не той формы (никаких кавычек в шелл)', () => {

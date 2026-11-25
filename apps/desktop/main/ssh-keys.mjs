@@ -21,15 +21,41 @@ export function keyFileName(host, user) {
 /** Публичный ключ OpenSSH одной строкой: тип, base64 и комментарий без пробелов и кавычек. */
 const PUB_RE = /^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [A-Za-z0-9._@:-]+)?$/;
 
-/** Ключ приложения для подключения: есть — читаем, нет — создаём (права 600). */
-export function ensureAppKey(file, comment = `perimeter@${hostname().replace(/[^A-Za-z0-9._-]/g, '-') || 'client'}`) {
+/**
+ * Ключ годен: закрытая часть разбирается, открытая — тоже, и они от одной пары. ssh2.utils.generateKeyPairSync
+ * для ed25519 примерно в 0,6% случаев выдаёт битую пару (открытый ключ 31 байт вместо 32 — теряется ведущий нулевой
+ * байт), которую сам же не читает: «Malformed OpenSSH private key» (23.11 — CI v0.2.5).
+ */
+export function keyPairValid(privateKey, publicKey) {
+  const priv = utils.parseKey(privateKey);
+  const pub = utils.parseKey(publicKey);
+  if (priv instanceof Error || pub instanceof Error) return false;
+  const a = (Array.isArray(priv) ? priv[0] : priv).getPublicSSH();
+  const b = (Array.isArray(pub) ? pub[0] : pub).getPublicSSH();
+  return Buffer.isBuffer(a) && Buffer.isBuffer(b) && a.equals(b);
+}
+
+/** Новая пара ed25519, заведомо читаемая (битую — генерируем заново). gen — для тестов. */
+export function generateValidPair(comment, gen = (c) => utils.generateKeyPairSync('ed25519', { comment: c })) {
+  for (let i = 0; i < 20; i++) {
+    const pair = gen(comment);
+    if (keyPairValid(pair.private, pair.public)) return pair;
+  }
+  throw new Error('не удалось создать ключ ssh (20 попыток) — сообщите разработчику');
+}
+
+/** Ключ приложения для подключения: есть и годен — читаем; нет или битый — создаём (права 600). */
+export function ensureAppKey(file, comment = `perimeter@${hostname().replace(/[^A-Za-z0-9._-]/g, '-') || 'client'}`, gen = undefined) {
   const pubFile = `${file}.pub`;
   if (existsSync(file) && existsSync(pubFile)) {
-    return { privateKeyPath: file, publicKey: readFileSync(pubFile, 'utf8').trim() };
+    const priv = readFileSync(file, 'utf8');
+    const pub = readFileSync(pubFile, 'utf8').trim();
+    // ключ, созданный версией до 23.11, мог оказаться битым — тогда новый (вход паролем положит и его)
+    if (keyPairValid(priv, pub)) return { privateKeyPath: file, publicKey: pub };
   }
   const dir = join(file, '..');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const pair = utils.generateKeyPairSync('ed25519', { comment });
+  const pair = generateValidPair(comment, gen);
   writeFileSync(file, pair.private, { mode: 0o600 });
   try { chmodSync(file, 0o600); } catch { /* Windows — права через ACL профиля */ }
   writeFileSync(pubFile, `${pair.public.trim()}\n`, { mode: 0o644 });
