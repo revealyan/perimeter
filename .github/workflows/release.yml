@@ -21,19 +21,17 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
+      # Сборка без публикации: electron-builder на теге публикует сам (неявное `onTag`, EP_PUBLISH он не знает) —
+      # с `publish: github` в конфиге и токеном в env это давало второй релиз с тем же тегом (v0.2.7, v0.2.8).
+      # `--publish never` — в скрипте dist; токена шагу не даём, чтобы и случайно не смог. latest.yml пишется и так.
       - run: npm run dist -w @perimeter/desktop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # публикацию делает отдельный шаг (gh) — сам electron-builder на теге лезет публиковать сам и падает
-          EP_PUBLISH: never
       - name: контрольные суммы
         shell: bash
         run: |
           cd apps/dist-desktop
           sha256sum perimeter-setup-*.exe perimeter-portable-*.exe > SHA256SUMS.txt
-      # Публикация — gh, а не softprops: 25.11 softprops на v0.2.7 создал два релиза с одним тегом (в одном — только
-      # .blockmap) и упал на «already_exists». gh с файлами сам делает черновик → заливает → публикует; повторный
-      # прогон того же тега дозаливает файлы (--clobber), а не плодит релизы.
+      # Публикация — один шаг gh: с файлами сам делает черновик → заливает → публикует; повторный прогон того же тега
+      # дозаливает файлы (--clobber), а не плодит релизы.
       - name: релиз
         shell: bash
         env:

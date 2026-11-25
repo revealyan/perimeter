@@ -37,6 +37,6 @@
     "dev:electron": "electron .",
     "build": "vite build --config renderer/vite.config.ts",
     "prepare-pack": "node scripts/prepare-pack.mjs",
-    "dist": "npm run build && npm run prepare-pack && electron-builder --win"
+    "dist": "npm run build && npm run prepare-pack && electron-builder --win --publish never"
   }
 }

@@ -26,10 +26,11 @@
 2. `git tag v<x.y.z> && git push origin v<x.y.z>`.
 3. CI (`.github/workflows/release.yml`): тесты → typecheck → сборка → electron-builder (NSIS + portable) →
    **сразу опубликованный** GitHub Release (latest) с exe + SHA256SUMS и заметками из коммитов (с v0.2.5; до него — черновик).
-   Публикует `gh release create` (с v0.2.8; softprops на v0.2.7 задвоил релиз): проверяет тег = версия, все файлы на месте.
+   Публикует один шаг `gh release create` (с v0.2.8): проверяет тег = версия и что все пять файлов на месте.
 4. Откат = прошлый релиз там же. Плохой релиз — снять в GitHub (Releases → Delete) и выпустить следующий.
 
-- Правила: тег = версия package.json; electron-builder сам не публикует (`EP_PUBLISH=never`); electron запинен.
+- Правила: тег = версия package.json (CI сверяет); electron-builder сам не публикует (`--publish never` в `dist`;
+  `EP_PUBLISH` он не знает — на теге публиковал сам, отсюда двойные v0.2.7/v0.2.8); electron запинен.
 - Перед тегом: `npm test` → `npm run typecheck` → живой прогон packaged-механики: `ensureLocalServer` +
   `supervisor.mjs` (отдельный порт) + **настоящий ход** (hello недостаточно).
 - **Коммит перед тегом проверять** (`git log -1`): 23.11 тег v0.1.1 ушёл на старый коммит, потому что коммит
