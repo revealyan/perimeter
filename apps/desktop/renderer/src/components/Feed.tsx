@@ -14,7 +14,8 @@ import { clock, countOf } from '../lib/ru';
 import { STATE_LABEL } from './labels';
 import { explainApiError, isApiErrorText, retryLine } from '../lib/apiErrors';
 import { requestComposerAction } from '../composeBus';
-import { activityText, queuedTailStart } from '../lib/activity';
+import { activityText } from '../lib/activity';
+import { isQueued } from '../lib/queued';
 
 /** Уже этой ширины «Рядом» в дифе не влезает — построчно. */
 const COMPACT_W = 760;
@@ -87,7 +88,10 @@ export function Feed({ session, client, onOpenChange, onOpenSession }: {
   const loading = session.state === 'initializing' || session.state === 'creating' || session.resyncing === true;
   const empty = session.items.length === 0 && !session.printing && session.permissions.length === 0;
   const busy = session.state === 'working' || session.state === 'waiting_permission' || session.state === 'waiting_input';
-  const blocks = feedBlocks(session.items);
+  // реплики «в очереди» — не в потоке, а внизу под строкой активности, пока агент их не взял (тогда встают туда,
+  // где прочитаны, — clearQueued); иначе ответ, писавшийся по старому запросу, вставал под ними
+  const queuedItems = session.items.filter(isQueued);
+  const blocks = feedBlocks(queuedItems.length > 0 ? session.items.filter((it) => !isQueued(it)) : session.items);
   // воркеры делегирования этой сессии: связь карточек с ними (FIFO) и действия блока
   const delegateTools = useMemo<DelegateTools>(() => {
     const workers = [...client.sessions.values()].filter((v) => v.parentSessionId === session.id);
@@ -101,10 +105,7 @@ export function Feed({ session, client, onOpenChange, onOpenSession }: {
   }, [client, session, onOpenSession]);
   // вызов, на котором стоит запрос разрешения: после ресинка он помечен законченным, но результата нет
   const waiting = new Set(session.permissions.filter((p) => !p.questions?.length).map((p) => `${p.toolName}|${JSON.stringify(p.input)}`));
-  // реплики «в очереди» в конце ленты — отдельным хвостом: над ним строка активности (что агент делает сейчас)
-  const tailFrom = queuedTailStart(blocks);
-  const head = blocks.slice(0, tailFrom);
-  const queuedTail = blocks.slice(tailFrom);
+  const head = blocks;
   const last = head[head.length - 1];
   // ответ печатается в открытый блок агента; если его нет (только что спросили) — в новый
   const printInLast = last?.kind === 'agent' && !last.turn;
@@ -166,7 +167,7 @@ export function Feed({ session, client, onOpenChange, onOpenSession }: {
           {session.retry && <RetryLine retry={session.retry} gateway={client.profiles.find((p) => p.name === session.profile)?.keyEditable === true} />}
           {/* ход идёт — что именно делается (как «Thinking…» в Claude Code): не кажется, что всё зависло */}
           {session.state === 'working' && session.permissions.length === 0 && !session.retry && <ActivityLine session={session} />}
-          {queuedTail.map((b) => (b.kind === 'user' ? <UserBlock key={b.key} item={b.item} /> : null))}
+          {queuedItems.map((it) => <UserBlock key={it.id} item={it} />)}
           {/* ход упал ошибкой API и не идёт повтор — «повторить» и «сменить модель» */}
           {retryPrompt(session) !== null && session.retry === undefined && session.state !== 'working' && (
             <div className="turn-error-actions" role="group" aria-label="Ход упал">

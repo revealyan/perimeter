@@ -1774,7 +1774,6 @@ export class SupervisorClient {
       case 'event:turn.result':
         s.printing = null;
         delete s.retry;
-        clearQueued(s, false);
         // ход закончился — лимиты его аккаунта изменились: обновить, если их показываем (z.ai событий не шлёт)
         if (s.profile && this.usage.has(s.profile)) setTimeout(() => this.refreshUsageIfStale(s.profile!, 0), 1500);
         if (typeof document !== 'undefined' && (document.hidden || !document.hasFocus())) {
@@ -1792,6 +1791,8 @@ export class SupervisorClient {
           ...(e.durationMs !== undefined ? { durationMs: e.durationMs } : {}),
         };
         s.items.push({ id: `i${e.seq}`, kind: 'turn', data: { ...s.lastResult }, ts: e.ts });
+        // не взятые за ход реплики Claude Code возьмёт следующим ходом — встают после итога этого хода
+        clearQueued(s, false);
         break;
       case 'event:subagent.start':
         s.items.push({ id: `i${e.seq}`, kind: 'subagent', data: { phase: 'start', parent: e.parentToolUseId, ...(e.agentType ? { agentType: e.agentType } : {}) }, ts: e.ts });

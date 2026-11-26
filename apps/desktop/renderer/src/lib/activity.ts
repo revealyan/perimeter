@@ -37,14 +37,3 @@ export function activityText(a: Activity | undefined, runningTool: string | null
   const quiet = a && !runningTool ? Math.floor((now - a.at) / 1000) : 0;
   return `${what}…${quiet >= 20 ? ` · ${quiet} с без новых данных` : ''}`;
 }
-
-/** Хвост ленты из реплик «в очереди»: строка активности встаёт перед ним. */
-export function queuedTailStart(blocks: Array<{ kind: string; item?: { data: Record<string, unknown> } }>): number {
-  let i = blocks.length;
-  while (i > 0) {
-    const b = blocks[i - 1]!;
-    if (b.kind === 'user' && b.item?.data['queued'] === true) i--;
-    else break;
-  }
-  return i;
-}
