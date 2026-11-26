@@ -28,7 +28,16 @@
 
 ## Установка
 
-Готовые сборки — на странице **[Releases](https://github.com/revealyan/perimeter/releases/latest)**:
+**Через npm — без предупреждений системы на Windows и macOS** (нужен Node.js 22+):
+
+```bash
+npx @revealyan/perimeter          # запустить
+npm i -g @revealyan/perimeter     # или поставить: команда perimeter
+```
+
+Обновление — «Обновить до vX» в строке статуса. Все каналы — [docs/distribution.md](docs/distribution.md).
+
+Или готовые сборки — на странице **[Releases](https://github.com/revealyan/perimeter/releases/latest)**:
 
 - **Windows** — `perimeter-setup-<версия>.exe` (обновляется сам, тихо: «Перезапустить» в строке статуса) или
   `perimeter-portable-<версия>.exe` (без установки, обновление — новой версией со страницы релизов).

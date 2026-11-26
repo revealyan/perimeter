@@ -181,7 +181,8 @@ export default function App() {
   // обновление приложения скачано — в журнал с «перезапустить» (кнопка в строке статуса тоже есть)
   const appUpd = useUpdate();
   useEffect(() => {
-    if (appUpd?.state === 'available' && appUpd.manual) notifications.push({ level: 'info', key: 'app-update', title: `есть новая версия ${appUpd.version ?? ''}`, text: 'на macOS ставится вручную: скачайте и замените приложение', action: { label: 'скачать', run: () => void window.perimeterIPC?.updateInstall?.() } });
+    if (appUpd?.state === 'available' && appUpd.npm) notifications.push({ level: 'info', key: 'app-update', title: `есть новая версия ${appUpd.version ?? ''}`, text: 'поставится через npm: приложение закроется и запустится новым', action: { label: 'обновить', run: () => void window.perimeterIPC?.updateInstall?.() } });
+    else if (appUpd?.state === 'available' && appUpd.manual) notifications.push({ level: 'info', key: 'app-update', title: `есть новая версия ${appUpd.version ?? ''}`, text: 'на macOS ставится вручную: скачайте и замените приложение', action: { label: 'скачать', run: () => void window.perimeterIPC?.updateInstall?.() } });
     else if (appUpd?.state === 'ready') notifications.push({ level: 'ok', key: 'app-update', title: `обновление ${appUpd.version ?? ''} скачано`, text: 'поставится тихо при перезапуске или выходе', action: { label: 'перезапустить', run: () => void window.perimeterIPC?.updateInstall?.() } });
     else if (appUpd?.state === 'error') notifications.push({ level: 'warn', key: 'app-update', title: 'обновление приложения не проверилось', ...(appUpd.message ? { text: appUpd.message } : {}) });
   }, [appUpd?.state, appUpd?.version]); // eslint-disable-line react-hooks/exhaustive-deps

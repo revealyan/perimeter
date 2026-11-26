@@ -13,14 +13,23 @@ import { installKeyWithPassword } from './ssh-keys.mjs';
 import { LocalSupervisor } from './local-sup.mjs';
 import { AppUpdater } from './updater.mjs';
 import { ServerAutoUpdate } from './server-autoupdate.mjs';
+import { npmChannel } from './npm-channel.mjs';
 import electronUpdater from 'electron-updater';
 
 // имя приложения (профиль %APPDATA%/Perimeter вместо scoped-имени пакета «@perimeter/desktop»)
 app.setName('Perimeter');
 
-// packaged: серверная сборка для VPS едет готовой в resources (исходников в установке нет);
+// Как запущено: packaged — установщик/dmg (electron-builder); npm — пакет из реестра (`npx @revealyan/perimeter`:
+// Electron из зависимостей + это приложение, без подписей — npm не ставит пометок «скачано из интернета», владелец
+// 2026-11-26: «делаем, пока нет подписки»); dev — репозиторий. packaged и npm — «готовые»: рендерер собран,
+// бандлы supervisor'а лежат в resources (у npm — рядом с приложением, а не в process.resourcesPath Electron'а).
+const DIST = app.isPackaged ? 'packaged' : process.env.PERIMETER_DIST === 'npm' ? 'npm' : 'dev';
+const shipped = DIST !== 'dev';
+const resourcesDir = DIST === 'packaged' ? process.resourcesPath : join(import.meta.dirname, '..', 'resources');
+
+// готовые: серверная сборка для VPS едет в resources (исходников в установке нет);
 // devBundle установщика читает её через PERIMETER_SERVER_BUNDLE
-if (app.isPackaged) process.env.PERIMETER_SERVER_BUNDLE = join(process.resourcesPath, 'app-server');
+if (shipped) process.env.PERIMETER_SERVER_BUNDLE = join(resourcesDir, 'app-server');
 
 const devUrl = process.env.PERIMETER_DEV_URL ?? 'http://localhost:5173';
 
@@ -67,12 +76,12 @@ function killTree(child) {
 /** Установка packaged-локального supervisor (докачка движка) — один промис на все вызовы. */
 let localSupInstall = null;
 
-/** Что запускать: packaged — бандл из resources и движок в профиле (докачка один раз на версию); dev — исходники. */
+/** Что запускать: готовые (packaged, npm) — бандл из resources и движок в профиле (докачка один раз на версию); dev — исходники. */
 async function prepareLocal(onStatus) {
-  if (app.isPackaged) {
+  if (shipped) {
     if (!localSupInstall) {
       localSupInstall = ensureLocalServer({
-        bundleDir: join(process.resourcesPath, 'app-supervisor'),
+        bundleDir: join(resourcesDir, 'app-supervisor'),
         installRoot: join(app.getPath('userData'), 'local-server'),
         onStatus,
       }).catch((e) => { localSupInstall = null; throw e; });
@@ -144,8 +153,8 @@ function createWindow() {
     if (/^https?:/i.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  // packaged: собранный рендерер из файлов; dev: vite-сервер
-  if (app.isPackaged) win.loadFile(join(import.meta.dirname, '..', 'dist-renderer', 'index.html'));
+  // готовые: собранный рендерер из файлов; dev: vite-сервер
+  if (shipped) win.loadFile(join(import.meta.dirname, '..', 'dist-renderer', 'index.html'));
   else win.loadURL(devUrl);
   win.webContents.on('did-finish-load', () => {
     send('perimeter:tunnel-status', tunnelStatus);
@@ -251,7 +260,7 @@ serverAuto = new ServerAutoUpdate({
   installer,
   config: (id) => conns.config(id),
   enabled: () => appSettings.autoServerUpdate !== false,
-  packaged: app.isPackaged,
+  packaged: shipped,
   onEvent: (e) => send('perimeter:server-update', e),
   onLine: (id, line) => send('perimeter:server-log', { connId: id, line }),
 });
@@ -312,7 +321,9 @@ const appUpdater = new AppUpdater({
   updater: app.isPackaged ? electronUpdater.autoUpdater : null,
   version: app.getVersion(),
   portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
-  packaged: app.isPackaged,
+  packaged: shipped,
+  // npm: новая версия — из реестра npm, ставит её npm (после выхода приложения: свои файлы занятыми не обновить)
+  ...(DIST === 'npm' ? { npm: npmChannel({ spec: process.env.PERIMETER_NPM_SPEC ?? '@revealyan/perimeter', mode: process.env.PERIMETER_NPM_MODE === 'npx' ? 'npx' : 'global', quit: () => app.quit() }) } : {}),
   // macOS без подписи Apple: автоустановка невозможна — находим версию и ведём на страницу релиза
   manual: process.platform === 'darwin',
   openUrl: (url) => void shell.openExternal(url),

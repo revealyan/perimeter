@@ -10,3 +10,4 @@ docs/support/*.local.md
 apps/desktop/resources/
 dist-desktop/
 apps/desktop/resources-local/
+apps/dist-npm/

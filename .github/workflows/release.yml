@@ -102,3 +102,47 @@ jobs:
           else
             gh release create "$tag" "${files[@]}" --title "$tag" --generate-notes --latest --verify-tag
           fi
+
+  # Канал npm (`npx @revealyan/perimeter`; владелец 2026-11-26: «делаем, пока нет подписки для аппстора»): лаунчер +
+  # приложение, Electron — зависимостью (npm не ставит пометок «скачано из интернета» — ни SmartScreen, ни Gatekeeper).
+  # Без секрета NPM_TOKEN — пропускается с предупреждением. --provenance: npm показывает, из какого коммита и CI собрано.
+  npm:
+    needs: [windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build -w @perimeter/desktop && npm run prepare-pack -w @perimeter/desktop
+      - run: node apps/desktop/scripts/pack-npm.mjs
+      - name: публикация в npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then echo "::warning::нет секрета NPM_TOKEN — в npm не опубликовано (docs/distribution.md)"; exit 0; fi
+          cd apps/dist-npm && npm publish --access public --provenance
+
+  # winget (`winget install revealyan.Perimeter`): пулл-реквест в microsoft/winget-pkgs с новой версией установщика.
+  # Действие обновляет уже заведённый пакет — первую версию подаёт владелец (docs/distribution.md). Без WINGET_TOKEN — пропуск.
+  winget:
+    needs: [release]
+    runs-on: ubuntu-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - name: без токена — пропуск
+        if: env.WINGET_TOKEN == ''
+        run: echo "::warning::нет секрета WINGET_TOKEN — winget не обновлён (docs/distribution.md)"
+      - uses: vedantmgoyal9/winget-releaser@v2
+        if: env.WINGET_TOKEN != ''
+        with:
+          identifier: revealyan.Perimeter
+          installers-regex: 'perimeter-setup-[0-9.]+\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}

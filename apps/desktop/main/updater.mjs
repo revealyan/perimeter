@@ -3,6 +3,8 @@
 // «Перезапустить и обновить» — по кнопке (идущие сессии на серверах не прерываются: они живут не в приложении).
 // Обновляется только установленная версия (NSIS); portable так не умеет — ему ссылка на страницу релизов.
 
+import { newer } from './npm-channel.mjs';
+
 export const RELEASES_URL = 'https://github.com/revealyan/perimeter/releases/latest';
 const CHECK_EVERY_MS = 4 * 3600_000;
 const FIRST_CHECK_MS = 15_000;
@@ -17,6 +19,7 @@ export class AppUpdater {
   /**
    * @param {{ updater: any | null, version: string, portable: boolean, packaged: boolean, onState: (s: object) => void,
    *           manual?: boolean, openUrl?: (url: string) => void,
+   *           npm?: { latest: () => Promise<string>, install: (v: string) => unknown, mode: string },
    *           setTimer?: typeof setTimeout, setEvery?: typeof setInterval }} deps
    * manual — macOS без подписи Apple Developer ID: Squirrel.Mac ставит только подписанное, поэтому новую версию
    * находим, но не качаем — «Скачать vX» ведёт на страницу релиза.
@@ -25,6 +28,8 @@ export class AppUpdater {
     this.deps = deps;
     this.state = { state: 'idle', current: deps.version };
     if (!deps.packaged) this.set({ state: 'off', reason: 'сборка для разработки — обновления выключены' });
+    // канал npm: версия — из реестра, ставит npm (electron-updater здесь не при чём)
+    else if (deps.npm) this.set({ state: 'idle' });
     else if (deps.portable) this.set({ state: 'off', reason: 'portable-версия не обновляется сама', url: RELEASES_URL });
     else if (!deps.updater) this.set({ state: 'off', reason: 'модуль обновлений недоступен' });
     else this.wire();
@@ -62,6 +67,17 @@ export class AppUpdater {
 
   /** Проверить сейчас (кнопка в настройках). */
   async check() {
+    if (this.deps.npm && this.state.state !== 'off') {
+      if (this.state.state === 'available') return this.state;
+      this.set({ state: 'checking' });
+      try {
+        const v = await this.deps.npm.latest();
+        this.set(newer(v, this.deps.version) ? { state: 'available', version: v, npm: true } : { state: 'latest' });
+      } catch (e) {
+        this.set({ state: 'error', message: String(e?.message ?? e).split('\n')[0].slice(0, 160) });
+      }
+      return this.state;
+    }
     if (this.state.state === 'off' || this.state.state === 'downloading' || this.state.state === 'ready' || (this.state.state === 'available' && this.state.manual)) return this.state;
     try {
       await this.deps.updater.checkForUpdates();
@@ -77,6 +93,8 @@ export class AppUpdater {
    * было quitAndInstall(false, …), т. е. NSIS с окнами.
    */
   install() {
+    // канал npm: помощник поставит новую версию после выхода и запустит её
+    if (this.state.state === 'available' && this.state.npm) { this.deps.npm.install(this.state.version); return true; }
     // мак без подписи: «Скачать vX» — страница релиза (поставить новую версию поверх старой руками)
     if (this.state.state === 'available' && this.state.manual) { this.deps.openUrl?.(this.state.url); return true; }
     if (this.state.state !== 'ready') return false;

@@ -9,6 +9,8 @@ export type UpdateState = {
   url?: string;
   /** macOS без подписи: не качается сам — «Скачать vX» открывает страницу релиза */
   manual?: boolean;
+  /** канал npm: «Обновить до vX» — npm поставит после выхода и запустит новую */
+  npm?: boolean;
 };
 
 /** Строка в «Настройки → Общие». */
@@ -18,7 +20,7 @@ export function updateText(s: UpdateState): string {
     case 'idle': return 'проверю при запуске и раз в 4 часа';
     case 'checking': return 'проверяю…';
     case 'latest': return 'это последняя версия';
-    case 'available': return s.manual ? `есть ${s.version ?? 'новая версия'} — скачайте со страницы релиза (на macOS без подписи Apple обновление ставится вручную)` : `найдена ${s.version ?? 'новая версия'} — скачиваю`;
+    case 'available': return s.npm ? `есть ${s.version ?? 'новая версия'} — «Обновить» поставит её через npm и перезапустит приложение` : s.manual ? `есть ${s.version ?? 'новая версия'} — скачайте со страницы релиза (на macOS без подписи Apple обновление ставится вручную)` : `найдена ${s.version ?? 'новая версия'} — скачиваю`;
     case 'downloading': return `скачиваю ${s.version ?? ''}${s.percent !== undefined ? ` · ${s.percent}%` : ''}`.trim();
     case 'ready': return `${s.version ?? 'новая версия'} скачана — перезапустите, чтобы поставить`;
     case 'error': return `не удалось проверить: ${s.message ?? 'ошибка'}`;
@@ -29,6 +31,7 @@ export function updateText(s: UpdateState): string {
 export function updateBadge(s: UpdateState | null): { text: string; action: boolean; tip?: string } | null {
   if (!s) return null;
   if (s.state === 'ready') return { text: `Перезапустить: ${s.version ?? 'обновление'}`, action: true };
+  if (s.state === 'available' && s.npm) return { text: `Обновить до ${s.version ?? 'новой'}`, action: true, tip: 'Приложение закроется, npm поставит новую версию и запустит её (сессии на серверах не прервутся)' };
   if (s.state === 'available' && s.manual) return { text: `Скачать ${s.version ?? 'обновление'}`, action: true, tip: 'Откроет страницу релиза: скачайте и замените приложение (на macOS без подписи Apple обновление ставится вручную)' };
   if (s.state === 'downloading') return { text: `обновление ${s.version ?? ''} · ${s.percent ?? 0}%`.replace('  ', ' '), action: false };
   return null;
