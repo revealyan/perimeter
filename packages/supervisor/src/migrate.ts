@@ -3,12 +3,18 @@
 import { execFile } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir, hostname, userInfo } from 'node:os';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import type { AccountKind, Inventory, InventoryAccount, InventoryGit, InventoryProject } from '@perimeter/protocol';
 import type { Profile } from './profiles.js';
 import { profileConfigDir } from './profiles.js';
 import type { SessionInfo } from './session/manager.js';
 import { listKeys } from './serverKeys.js';
+
+/** Путь внутри папки (или она сама) — по relative, а не по «/»: на Windows разделитель другой. */
+export function isInside(child: string, parent: string): boolean {
+  const rel = relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
 
 /** Пересобираемое тяжёлое — не везём (пересоберётся на цели). */
 export const HEAVY_DIRS = new Set(['node_modules', '.venv', 'venv', '__pycache__', 'dist', 'build', '.next', '.nuxt', 'target', '.cache', '.turbo', '.gradle', '.tox', '.mypy_cache', '.pytest_cache']);
@@ -58,9 +64,11 @@ export const run: Run = (cmd, args, cwd) => new Promise((resolve) => {
 export async function gitState(path: string, exec: Run = run): Promise<InventoryGit | null> {
   const inside = await exec('git', ['-C', path, 'rev-parse', '--is-inside-work-tree']);
   if (inside.code !== 0 || inside.stdout.trim() !== 'true') return null;
-  const top = await exec('git', ['-C', path, 'rev-parse', '--show-toplevel']);
-  // папка проекта внутри чужого репозитория (например, проект в ~ под git) — это не его git
-  if (top.code === 0 && relative(top.stdout.trim(), path) !== '') return null;
+  // папка проекта внутри чужого репозитория (например, проект в ~ под git) — это не его git. Спрашиваем у git
+  // префикс (пусто = корень), а не сравниваем пути: на Windows git отдаёт C:/Users/runneradmin, а папка —
+  // C:\Users\RUNNER~1 (v0.2.11 упал на этом в CI)
+  const prefix = await exec('git', ['-C', path, 'rev-parse', '--show-prefix']);
+  if (prefix.code === 0 && prefix.stdout.trim() !== '') return null;
   const [remote, branch, head, status, unpushed, refs, stash, ignored] = await Promise.all([
     exec('git', ['-C', path, 'remote', 'get-url', 'origin']),
     exec('git', ['-C', path, 'branch', '--show-current']),
@@ -180,10 +188,10 @@ export async function collectInventory(d: InventoryDeps): Promise<Inventory> {
     projects.push({
       name: p.name, path: p.path, exists, ...size,
       git: exists ? await gitState(p.path, exec) : null,
-      sessions: d.sessions.filter((s) => s.projectId !== undefined && s.cwd !== undefined && (s.cwd === p.path || s.cwd.startsWith(`${p.path}/`))).length,
+      sessions: d.sessions.filter((s) => s.projectId !== undefined && s.cwd !== undefined && isInside(s.cwd, p.path)).length,
     });
   }
-  const inProject = (s: SessionInfo) => d.projects.some((p) => s.cwd !== undefined && (s.cwd === p.path || s.cwd.startsWith(`${p.path}/`)));
+  const inProject = (s: SessionInfo) => d.projects.some((p) => s.cwd !== undefined && isInside(s.cwd, p.path));
   const byAccount: Record<string, number> = {};
   for (const s of d.sessions) { const a = d.externalOf(s.profile); byAccount[a] = (byAccount[a] ?? 0) + 1; }
   let mcpShared: string[] = [];

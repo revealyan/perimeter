@@ -11,7 +11,7 @@ import { create as tarCreate, extract as tarExtract } from 'tar';
 import type { Profile } from './profiles.js';
 import { profileConfigDir } from './profiles.js';
 import type { SessionInfo } from './session/manager.js';
-import { HEAVY_DIRS, accountKind, gitState } from './migrate.js';
+import { HEAVY_DIRS, accountKind, gitState, isInside } from './migrate.js';
 import { transcriptPath } from './transcript.js';
 
 export const PACKAGE_FORMAT = 'perimeter-migration';
@@ -178,7 +178,7 @@ export async function exportPackage(sel: MigrateSelection, d: ExportDeps): Promi
     }
     // ─── сессии ───
     if (sel.sessions !== 'none') {
-      const projOf = (cwd: string | undefined) => d.projects.find((p) => cwd !== undefined && (cwd === p.path || cwd.startsWith(`${p.path}/`)));
+      const projOf = (cwd: string | undefined) => d.projects.find((p) => cwd !== undefined && isInside(cwd, p.path));
       for (const s of d.sessions) {
         if (s.archived === true && sel.sessions !== 'all') continue;
         if (!s.claudeSessionId || !s.cwd) continue;

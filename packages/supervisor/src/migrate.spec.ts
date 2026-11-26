@@ -51,12 +51,23 @@ describe('переезд: опись', () => {
     expect(await gitState(join(r, 'sub'))).toBeNull();
   });
 
+  it('git по другому написанию пути (ссылка; на Windows — короткие имена RUNNER~1) — всё равно свой git', async () => {
+    const r = tmp();
+    git(r, 'init', '-q', '-b', 'main');
+    writeFileSync(join(r, 'a.txt'), '1');
+    git(r, 'add', '.');
+    git(r, 'commit', '-q', '-m', 'init');
+    const alias = join(tmp(), 'alias');
+    symlinkSync(r, alias, process.platform === 'win32' ? 'junction' : 'dir');
+    expect(await gitState(alias)).toMatchObject({ branch: 'main', dirty: 0 });
+  });
+
   it('аккаунты: способ входа, ключ — флагом без значения, свои skills (не симлинки), MCP аккаунта, транскрипты', () => {
     const base = tmp();
     const own = join(tmp(), '.claude');
     mkdirSync(join(own, 'skills', 'mine'), { recursive: true });
     mkdirSync(join(base, 'commands'), { recursive: true });
-    symlinkSync(join(base, 'commands'), join(own, 'commands'));
+    symlinkSync(join(base, 'commands'), join(own, 'commands'), process.platform === 'win32' ? 'junction' : 'dir'); // Windows без прав — junction
     writeFileSync(join(own, '.claude.json'), JSON.stringify({ mcpServers: { figma: {}, db: {} }, other: 1 }));
     mkdirSync(join(own, 'projects', '-p'), { recursive: true });
     writeFileSync(join(own, 'projects', '-p', 's.jsonl'), 'x'.repeat(10));
