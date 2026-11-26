@@ -1,5 +1,7 @@
-# Релиз: тег v* → тесты → сборка → установщик и portable в GitHub Release.
+# Релиз: тег v* → тесты → сборки (Windows: установщик + portable; macOS: dmg + zip под arm64 и x64) → GitHub Release.
 # Паблик-репо: GITHUB_TOKEN с permissions contents:write хватает для публикации.
+# Сборки параллельно, публикация — отдельным шагом из их файлов. Мак упал — Windows-релиз всё равно выходит
+# (автообновление установленных версий не должно зависеть от мак-сборки).
 name: release
 
 on:
@@ -25,28 +27,76 @@ jobs:
       # с `publish: github` в конфиге и токеном в env это давало второй релиз с тем же тегом (v0.2.7, v0.2.8).
       # `--publish never` — в скрипте dist; токена шагу не даём, чтобы и случайно не смог. latest.yml пишется и так.
       - run: npm run dist -w @perimeter/desktop
-      - name: контрольные суммы
-        shell: bash
-        run: |
-          cd apps/dist-desktop
-          sha256sum perimeter-setup-*.exe perimeter-portable-*.exe > SHA256SUMS.txt
-      # Публикация — один шаг gh: с файлами сам делает черновик → заливает → публикует; повторный прогон того же тега
-      # дозаливает файлы (--clobber), а не плодит релизы.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win
+          if-no-files-found: error
+          path: |
+            apps/dist-desktop/perimeter-setup-*.exe
+            apps/dist-desktop/perimeter-setup-*.exe.blockmap
+            apps/dist-desktop/latest.yml
+            apps/dist-desktop/perimeter-portable-*.exe
+
+  mac:
+    # macos-latest — Apple Silicon; x64 собирается там же (electron-builder умеет обе архитектуры на маке)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:mac -w @perimeter/desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          if-no-files-found: error
+          path: |
+            apps/dist-desktop/perimeter-*.dmg
+            apps/dist-desktop/perimeter-*-mac-*.zip
+            apps/dist-desktop/*.blockmap
+            apps/dist-desktop/latest-mac.yml
+
+  # Публикация — один шаг gh: с файлами сам делает черновик → заливает → публикует; повторный прогон того же тега
+  # дозаливает файлы (--clobber), а не плодит релизы.
+  release:
+    needs: [windows, mac]
+    if: always() && needs.windows.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
       - name: релиз
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          MAC_RESULT: ${{ needs.mac.result }}
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
           v="$(node -p "require('./apps/desktop/package.json').version")"
           [ "$tag" = "v$v" ] || { echo "тег $tag не совпадает с версией package.json ($v)"; exit 1; }
-          cd apps/dist-desktop
-          # latest.yml и .blockmap — для автообновления установленной версии (electron-updater); публикуем сразу
-          # (владелец 2026-11-25: «сам паблишь»), заметки — из коммитов
-          files=("perimeter-setup-$v.exe" "perimeter-setup-$v.exe.blockmap" latest.yml "perimeter-portable-$v.exe" SHA256SUMS.txt)
-          for f in "${files[@]}"; do [ -f "$f" ] || { echo "нет файла $f"; ls; exit 1; }; done
+          cd dist
+          # Windows — обязательно (latest.yml и .blockmap — для автообновления установленной версии)
+          win=("perimeter-setup-$v.exe" "perimeter-setup-$v.exe.blockmap" latest.yml "perimeter-portable-$v.exe")
+          for f in "${win[@]}"; do [ -f "$f" ] || { echo "нет файла $f"; ls; exit 1; }; done
+          # macOS — если собралась (dmg — поставить; zip + latest-mac.yml — проверка обновлений)
+          mac=()
+          if [ "$MAC_RESULT" = "success" ]; then
+            for a in arm64 x64; do
+              for f in "perimeter-$v-$a.dmg" "perimeter-$v-mac-$a.zip"; do [ -f "$f" ] && mac+=("$f"); done
+            done
+            [ -f latest-mac.yml ] && mac+=(latest-mac.yml)
+          else
+            echo "::warning::мак-сборка не удалась ($MAC_RESULT) — релиз только для Windows"
+          fi
+          sha256sum "perimeter-setup-$v.exe" "perimeter-portable-$v.exe" ${mac[@]+"${mac[@]}"} > SHA256SUMS.txt
+          files=("${win[@]}" ${mac[@]+"${mac[@]}"} SHA256SUMS.txt)
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --clobber
           else

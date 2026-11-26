@@ -1,13 +1,13 @@
 // Докачка движка локальной среды: поток в файл с прогрессом, сверка integrity, зависшая загрузка — ошибка
 // (а не вечное «докачиваю…»), повтор, уже поставленные пакеты при повторе не качаются заново.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { create } from 'tar';
 import { afterEach, describe, expect, it } from 'vitest';
-import { downloadTo, ensureLocalServer } from './local-server.mjs';
+import { downloadTo, ensureLocalServer, forPlatform, localCliPath } from './local-server.mjs';
 
 const dirs = [];
 const servers = [];
@@ -99,6 +99,26 @@ describe('ensureLocalServer', () => {
     expect(hits).toEqual({ '/a.tgz': 1, '/b.tgz': 1 });
   });
 
+  it('новая версия движка (релиз приложения): пакет с той же контрольной суммой — копией из прошлой, а не загрузкой', async () => {
+    const a = await makeTgz('node-pty', { 'a.txt': 'A' });
+    const b = await makeTgz('@anthropic-ai/claude-agent-sdk-win32-x64', { 'claude.exe': 'B1' });
+    const b2 = await makeTgz('@anthropic-ai/claude-agent-sdk-win32-x64', { 'claude.exe': 'B2' });
+    const { base, hits } = await registry({ '/a.tgz': a.buf, '/b.tgz': b.buf, '/b2.tgz': b2.buf });
+    const installRoot = tmp();
+    await ensureLocalServer({ bundleDir: bundle(base, [{ name: 'node-pty', path: 'a.tgz', integrity: a.integrity }, { name: '@anthropic-ai/claude-agent-sdk-win32-x64', path: 'b.tgz', integrity: b.integrity }], '0.2.0-a'), installRoot });
+    // релиз: код другой, node-pty тот же, Claude Code — новый
+    const status = [];
+    const r = await ensureLocalServer({ bundleDir: bundle(base, [{ name: 'node-pty', path: 'a.tgz', integrity: a.integrity }, { name: '@anthropic-ai/claude-agent-sdk-win32-x64', path: 'b2.tgz', integrity: b2.integrity }], '0.2.1-b'), installRoot, onStatus: (x) => status.push(x) });
+    expect(hits).toEqual({ '/a.tgz': 1, '/b.tgz': 1, '/b2.tgz': 1 });
+    expect(readFileSync(join(r.dir, 'node_modules', 'node-pty', 'a.txt'), 'utf8')).toBe('A');
+    expect(readFileSync(join(r.dir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-win32-x64', 'claude.exe'), 'utf8')).toBe('B2');
+    expect(status.some((x) => /node-pty · из прошлой версии/.test(x))).toBe(true);
+    // третий релиз: самая старая версия (0.2.0-a) удалена, прошлая (0.2.1-b) оставлена для отката
+    await ensureLocalServer({ bundleDir: bundle(base, [{ name: 'node-pty', path: 'a.tgz', integrity: a.integrity }], '0.2.2-c'), installRoot });
+    expect(readdirSync(installRoot).sort()).toEqual(['0.2.1-b', '0.2.2-c']);
+    expect(hits['/a.tgz']).toBe(1);
+  });
+
   it('зависание посреди — повтор той же загрузки; готовый пакет не перекачивается', async () => {
     const a = await makeTgz('node-pty', { 'a.txt': 'A' });
     const b = await makeTgz('big', { 'b.txt': 'B' });
@@ -139,4 +159,16 @@ describe('ensureLocalServer', () => {
     await expect(ensureLocalServer({ bundleDir, installRoot })).rejects.toThrow(/контрольная сумма/);
     expect(existsSync(join(installRoot, '0.1.0-test', '.installed'))).toBe(false);
   }, 15_000);
+
+  it('платформа: из lock ставятся только свои пакеты (os/cpu как у npm); бинарь Claude Code — по платформе', () => {
+    const mac = { os: ['darwin'], cpu: ['arm64'] };
+    expect(forPlatform(mac, 'darwin', 'arm64')).toBe(true);
+    expect(forPlatform(mac, 'darwin', 'x64')).toBe(false);
+    expect(forPlatform(mac, 'win32', 'x64')).toBe(false);
+    expect(forPlatform({}, 'win32', 'x64')).toBe(true); // node-pty — общий
+    expect(forPlatform({ os: ['!win32'] }, 'darwin', 'arm64')).toBe(true);
+    expect(forPlatform({ os: ['!win32'] }, 'win32', 'x64')).toBe(false);
+    expect(localCliPath('/i', 'darwin', 'arm64').replace(/\\/g, '/')).toBe('/i/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude');
+    expect(localCliPath('/i', 'win32', 'x64').replace(/\\/g, '/')).toBe('/i/node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe');
+  });
 });

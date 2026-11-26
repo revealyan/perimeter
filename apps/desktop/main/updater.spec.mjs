@@ -61,4 +61,18 @@ describe('обновление приложения', () => {
     expect(a.state).toMatchObject({ state: 'error', message: 'net::ERR_INTERNET_DISCONNECTED' });
     expect(a.install()).toBe(false);
   });
+
+  it('мак без подписи (manual): не качает сам; «Скачать vX» открывает страницу релиза', async () => {
+    const opened = [];
+    const { a, updater } = make({ manual: true, openUrl: (u) => opened.push(u) });
+    expect(updater.autoDownload).toBe(false);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    updater.emit('update-available', { version: '0.3.0' });
+    expect(a.state).toMatchObject({ state: 'available', version: '0.3.0', manual: true, url: RELEASES_URL });
+    await a.check(); // повторная проверка не сбивает «есть новая»
+    expect(updater.checks).toBe(0);
+    expect(a.install()).toBe(true);
+    expect(opened).toEqual([RELEASES_URL]);
+    expect(updater.installed).toBe(0);
+  });
 });

@@ -136,19 +136,23 @@ export async function buildServer({ outRoot = defaultOutRoot(), tag = process.en
   return { version, dir };
 }
 
+/** Claude Code под настольные платформы приложения: в lock бандла — все, ставится только своя (os/cpu в lock). */
+export const LOCAL_SDK_PACKAGES = ['win32-x64', 'win32-arm64', 'darwin-arm64', 'darwin-x64'].map((p) => `@anthropic-ai/claude-agent-sdk-${p}`);
+
 /**
- * Локальный бандл для упаковки в приложение (Windows): supervisor.mjs + lock с win-платформой
- * (node-pty, claude-agent-sdk-win32-x64). Бех .sh и node-runtime: запуск — под Node самого Electron,
- * пакеты ставит приложение в профиль пользователя при первом включении локальной среды.
+ * Локальный бандл для упаковки в приложение (Windows, macOS): supervisor.mjs + lock с node-pty (готовые сборки под
+ * win32/darwin) и Claude Code под каждую настольную платформу — приложение при первом включении локальной среды
+ * докачивает только пакеты своей платформы (local-server.mjs, по os/cpu). Без .sh и node-runtime: запуск — под Node
+ * самого Electron.
  */
 export async function buildLocal({ outRoot = defaultOutRoot() } = {}) {
   const pkg = JSON.parse(readFileSync(join(pkgDir, 'package.json'), 'utf8'));
   const rootLock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
-  const names = ['node-pty', '@anthropic-ai/claude-agent-sdk-win32-x64'];
+  const names = ['node-pty', ...LOCAL_SDK_PACKAGES];
   const deps = serverDeps(rootLock, names);
   const code = await bundleSupervisor();
   const h = createHash('sha256');
-  h.update(code).update('\0').update(JSON.stringify(deps)).update('\0').update('local-win');
+  h.update(code).update('\0').update(JSON.stringify(deps)).update('\0').update('local-desktop');
   const version = `${pkg.version}-local-${h.digest('hex').slice(0, 8)}`;
   const dir = join(outRoot, version);
   if (existsSync(join(dir, 'manifest.json'))) return { version, dir };
@@ -159,7 +163,7 @@ export async function buildLocal({ outRoot = defaultOutRoot() } = {}) {
       name: 'perimeter-local', version, lockfileVersion: 3, requires: true,
       packages: { '': { name: 'perimeter-local', version, optionalDependencies: deps.optionalDependencies }, ...deps.packages },
     }, null, 2)}\n`,
-    'manifest.json': `${JSON.stringify({ version, target: 'local-win', packages: deps.optionalDependencies }, null, 2)}\n`,
+    'manifest.json': `${JSON.stringify({ version, target: 'local-desktop', packages: deps.optionalDependencies }, null, 2)}\n`,
   };
   const tmp = `${dir}.tmp-${process.pid}`;
   rmSync(tmp, { recursive: true, force: true });

@@ -40,6 +40,24 @@ nsis:
 portable:
   artifactName: perimeter-portable-${version}.${ext}
 
+# macOS (владелец 2026-11-26: «у нас нет сборки под мак»): dmg — поставить, zip — для проверки обновлений
+# (latest-mac.yml). Apple Developer ID нет — подпись ad-hoc («-»): без неё на Apple Silicon приложение не запустится
+# вовсе; первый запуск — правый клик → «Открыть» (Gatekeeper: разработчик не проверен). Squirrel.Mac ставит только
+# настоящую подпись — поэтому на маке обновление «Скачать vX» ведёт на страницу релиза (updater.mjs, manual).
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  category: public.app-category.developer-tools
+  identity: "-"
+  hardenedRuntime: false
+  artifactName: perimeter-${version}-mac-${arch}.${ext}
+
+dmg:
+  artifactName: perimeter-${version}-${arch}.${ext}
+
 # обновление приложения (electron-updater, main/updater.mjs): с этим провайдером сборка кладёт рядом latest.yml и
 # .blockmap (CI прикладывает их к релизу), а в приложение — app-update.yml. Сам builder ничего не публикует
 # (EP_PUBLISH=never) — релиз публикует отдельный шаг CI.

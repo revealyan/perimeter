@@ -134,7 +134,7 @@ export function StatusBar({ client, session, tunnel, onTab, onSettings }: {
       {client.pool && client.pool.target > 0 && <><span className="sb-sep sb-server">·</span><span className="dim sb-server" data-tip="Пул тёплых процессов: новая сессия стартует мгновенно">тёплых {client.pool.warm}/{client.pool.target}</span></>}
       </div>
       {upd && (upd.action
-        ? <button className="sb-item sb-update" onClick={() => void window.perimeterIPC?.updateInstall?.()} data-tip="Новая версия скачана — перезапуск поставит её. Сессии на серверах не прервутся">{upd.text}</button>
+        ? <button className="sb-item sb-update" onClick={() => void window.perimeterIPC?.updateInstall?.()} data-tip={upd.tip ?? 'Новая версия скачана — перезапуск поставит её тихо. Сессии на серверах не прервутся'}>{upd.text}</button>
         : <span className="sb-item dim" data-tip="Новая версия качается в фоне">{upd.text}</span>)}
       <NotificationBell />
       <button className="icon-btn sm" onClick={onSettings} data-tip="Настройки" data-key="Ctrl ," aria-label="Настройки"><Icon name="settings" size={14} /></button>

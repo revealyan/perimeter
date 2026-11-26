@@ -313,6 +313,9 @@ const appUpdater = new AppUpdater({
   version: app.getVersion(),
   portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR),
   packaged: app.isPackaged,
+  // macOS без подписи Apple: автоустановка невозможна — находим версию и ведём на страницу релиза
+  manual: process.platform === 'darwin',
+  openUrl: (url) => void shell.openExternal(url),
   onState: (s) => send('perimeter:update', s),
 });
 ipcMain.handle('perimeter:update-state', () => appUpdater.state);

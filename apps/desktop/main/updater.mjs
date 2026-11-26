@@ -16,7 +16,10 @@ const FIRST_CHECK_MS = 15_000;
 export class AppUpdater {
   /**
    * @param {{ updater: any | null, version: string, portable: boolean, packaged: boolean, onState: (s: object) => void,
+   *           manual?: boolean, openUrl?: (url: string) => void,
    *           setTimer?: typeof setTimeout, setEvery?: typeof setInterval }} deps
+   * manual — macOS без подписи Apple Developer ID: Squirrel.Mac ставит только подписанное, поэтому новую версию
+   * находим, но не качаем — «Скачать vX» ведёт на страницу релиза.
    */
   constructor(deps) {
     this.deps = deps;
@@ -34,11 +37,12 @@ export class AppUpdater {
 
   wire() {
     const u = this.deps.updater;
-    u.autoDownload = true;
-    u.autoInstallOnAppQuit = true; // скачано, но не перезапустили — поставится при выходе
+    const manual = this.deps.manual === true;
+    u.autoDownload = !manual;
+    u.autoInstallOnAppQuit = !manual; // скачано, но не перезапустили — поставится при выходе
     u.on('checking-for-update', () => { if (this.state.state !== 'downloading' && this.state.state !== 'ready') this.set({ state: 'checking' }); });
     u.on('update-not-available', () => this.set({ state: 'latest' }));
-    u.on('update-available', (i) => this.set({ state: 'available', version: String(i?.version ?? '') }));
+    u.on('update-available', (i) => this.set({ state: 'available', version: String(i?.version ?? ''), ...(manual ? { manual: true, url: RELEASES_URL } : {}) }));
     u.on('download-progress', (p) => this.set({ state: 'downloading', version: this.state.version ?? '', percent: Math.round(Number(p?.percent ?? 0)) }));
     u.on('update-downloaded', (i) => this.set({ state: 'ready', version: String(i?.version ?? this.state.version ?? '') }));
     u.on('error', (e) => {
@@ -58,7 +62,7 @@ export class AppUpdater {
 
   /** Проверить сейчас (кнопка в настройках). */
   async check() {
-    if (this.state.state === 'off' || this.state.state === 'downloading' || this.state.state === 'ready') return this.state;
+    if (this.state.state === 'off' || this.state.state === 'downloading' || this.state.state === 'ready' || (this.state.state === 'available' && this.state.manual)) return this.state;
     try {
       await this.deps.updater.checkForUpdates();
     } catch (e) {
@@ -73,6 +77,8 @@ export class AppUpdater {
    * было quitAndInstall(false, …), т. е. NSIS с окнами.
    */
   install() {
+    // мак без подписи: «Скачать vX» — страница релиза (поставить новую версию поверх старой руками)
+    if (this.state.state === 'available' && this.state.manual) { this.deps.openUrl?.(this.state.url); return true; }
     if (this.state.state !== 'ready') return false;
     this.deps.updater.quitAndInstall(true, true);
     return true;
