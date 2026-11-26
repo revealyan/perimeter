@@ -15,7 +15,7 @@ export function shortLabel(w: UsageWindow): string {
 /** Тон по заполненности: ≥90 — красный, ≥75 — жёлтый. */
 export const usageTone = (pct: number): 'err' | 'warn' | 'ok' => (pct >= 90 ? 'err' : pct >= 75 ? 'warn' : 'ok');
 
-/** «через 2 ч 10 мин» / «через 3 дн.» / «скоро». */
+/** «через 2 ч 10 мин» / «через 3 дн. 11 ч» / «скоро». */
 export function resetIn(at: number | undefined, now = Date.now()): string {
   if (at === undefined) return '';
   const ms = at - now;
@@ -24,7 +24,9 @@ export function resetIn(at: number | undefined, now = Date.now()): string {
   if (min < 60) return `через ${min} мин`;
   const h = Math.floor(min / 60);
   if (h < 24) return `через ${h} ч${min % 60 ? ` ${min % 60} мин` : ''}`;
-  return `через ${Math.round(h / 24)} дн.`;
+  // недельное окно: «через 3 дн.» при 3 дн. 11 ч сбивало с толку — часы видны, пока до сброса меньше недели
+  const d = Math.floor(h / 24);
+  return `через ${d} дн.${h % 24 && d < 7 ? ` ${h % 24} ч` : ''}`;
 }
 
 /** Окна для строки статуса: первые два (короткое и недельное). */

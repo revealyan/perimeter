@@ -100,7 +100,11 @@ export function usageFromZai(body: unknown, at = Date.now()): UsageInfo | null {
   const windows: UsageWindow[] = [];
   d.limits.forEach((raw, idx) => {
     const l = raw as Record<string, unknown>;
-    const pct = num(l['percentage']);
+    const limit = num(l['usage']);
+    const used = num(l['currentValue']);
+    // percentage у z.ai округлён вниз (26.11: 123021 из 140000 → 87, на деле 87,9) — лимит занижать нельзя:
+    // есть израсходовано и лимит — считаем сами, нет — берём их процент
+    const pct = used !== undefined && limit !== undefined && limit > 0 ? (100 * used) / limit : num(l['percentage']);
     if (pct === undefined) return;
     const type = String(l['type'] ?? '');
     const unit = num(l['unit']);
@@ -108,8 +112,6 @@ export function usageFromZai(body: unknown, at = Date.now()): UsageInfo | null {
     const span = zaiWindowLabel(unit, n);
     const label = type === 'TIME_LIMIT' ? `MCP${span ? ` · ${span}` : ''}` : span ?? (type === 'TOKENS_LIMIT' ? 'токены' : type.toLowerCase());
     const reset = num(l['nextResetTime']);
-    const limit = num(l['usage']);
-    const used = num(l['currentValue']);
     windows.push({
       id: `zai:${type}:${unit ?? ''}:${n ?? idx}`, label, pct: clampPct(pct),
       ...(reset !== undefined && reset > 0 ? { resetsAt: reset } : {}),

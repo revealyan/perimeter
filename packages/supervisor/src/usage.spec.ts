@@ -42,8 +42,19 @@ describe('usage: разбор источников', () => {
     ] } };
     const u = usageFromZai(live, 1)!;
     expect(u.plan).toBe('max');
-    expect(u.windows.map((w) => [w.label, w.pct, w.used, w.limit])).toEqual([['5 часов', 2, 780, 28000], ['неделя', 25, 35455, 140000], ['MCP · месяц', 10, 400, 4000]]);
+    // процент — из израсходованного/лимита (их percentage округлён вниз), с точностью до десятой
+    expect(u.windows.map((w) => [w.label, w.pct, w.used, w.limit])).toEqual([['5 часов', 2.8, 780, 28000], ['неделя', 25.3, 35455, 140000], ['MCP · месяц', 10, 400, 4000]]);
     expect(usageFromZai({ code: 401, success: false, msg: 'bad key' })).toBeNull();
+  });
+
+  it('z.ai, живой ответ 26.11: 87,9% недели (у них 87), 10,8% за 5 часов (у них 10); без счётчиков — их процент', () => {
+    const live = { code: 200, msg: 'Operation successful', success: true, data: { level: 'max', limits: [
+      { type: 'CREDIT_LIMIT', unit: 3, number: 5, usage: 28000, currentValue: 3034, remaining: 24965, percentage: 10, nextResetTime: 1_795_698_787_036 },
+      { type: 'CREDIT_LIMIT', unit: 6, number: 1, usage: 140000, currentValue: 123021, remaining: 16978, percentage: 87, nextResetTime: 1_795_984_056_999 },
+    ] } };
+    expect(usageFromZai(live, 1)!.windows.map((w) => [w.label, w.pct, w.resetsAt])).toEqual([['5 часов', 10.8, 1_795_698_787_036], ['неделя', 87.9, 1_795_984_056_999]]);
+    expect(usageFromZai({ data: { limits: [{ type: 'CREDIT_LIMIT', unit: 3, number: 5, percentage: 33 }] } })!.windows[0]!.pct).toBe(33);
+    expect(usageFromZai({ data: { limits: [{ type: 'CREDIT_LIMIT', unit: 3, number: 5, percentage: 4, usage: 0, currentValue: 0 }] } })!.windows[0]!.pct).toBe(4);
   });
 
   it('z.ai: запрос квоты — домен шлюза, ключ в Authorization как есть (без Bearer)', async () => {
