@@ -1387,3 +1387,24 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .task-strip-done { opacity: .7; }
 .task-strip-more { list-style: none; padding-left: 22px; }
 .task-strip-toggle { font-size: var(--fs-sm); }
+
+/* «С сервера»: открытые SSH-ключи пользователя службы */
+.srv-keys { display: flex; flex-direction: column; gap: 10px; }
+.srv-keys-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.srv-key { background: var(--surface); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.srv-key-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.srv-key-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-key-meta { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.srv-keys-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.srv-keys .link-btn { display: inline-flex; align-items: center; gap: 4px; }
+.srv-keys-result { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0; }
+.badge-soft { font-size: var(--fs-xs, 11px); padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); white-space: nowrap; }
+
+/* строка активности внизу ленты (что агент делает сейчас) — над репликами «в очереди» */
+.activity-line { display: flex; align-items: center; gap: 10px; margin: 6px 0 10px; padding: 6px 2px; font-size: var(--fs-sm); color: var(--dim); border-top: 1px dashed var(--line); }
+.activity-dots { display: inline-flex; gap: 3px; }
+.activity-dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--accent, var(--warn)); animation: activity-blink 1.2s ease-in-out infinite; }
+.activity-dots span:nth-child(2) { animation-delay: .2s; }
+.activity-dots span:nth-child(3) { animation-delay: .4s; }
+@keyframes activity-blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .activity-dots span { animation: none; opacity: .7; } }

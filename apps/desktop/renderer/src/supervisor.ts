@@ -14,6 +14,7 @@ import { playTurnDone, turnSoundMode } from './lib/sound';
 import { attachOrphanResults, feedFits, feedSignature, mergeCachedFeed, toCachedSession, type CachedSession } from './lib/cacheModel';
 import { clearQueued } from './lib/queued';
 import { hasResult } from './lib/sessionGroups';
+import { nextActivity, type Activity } from './lib/activity';
 import { isCold, isQuietState, WAKE_COLD_THROTTLE_MS, WAKE_HOLD_MAX_MS, WAKE_SELECT_DELAY_MS, WAKE_TOUCH_THROTTLE_MS } from './lib/wake';
 
 /** closed — клиент закрыт намеренно (подключение выключено/удалено), не переподключается */
@@ -41,6 +42,11 @@ export interface FeedItem {
   data: Record<string, unknown>;
   ts?: number;
 }
+
+/** Открытый SSH-ключ пользователя службы (cmd:keys.list). */
+export interface ServerKey { file: string; type: string; comment: string; fingerprint: string; publicKey: string; hasPrivate: boolean; github: boolean }
+/** Итог проверки входа в GitHub с сервера. */
+export interface GithubCheck { ok: boolean; login?: string; message: string; hostKeysAdded: boolean }
 
 export interface SessionView {
   id: string;
@@ -84,6 +90,8 @@ export interface SessionView {
   cachedFeed?: boolean;
   /** окно попросило разбудить (выбрали/начали печатать) — когда; снимается, когда процесс поднялся или не смог */
   waking?: number;
+  /** что модель шлёт прямо сейчас (строка активности внизу ленты); сбрасывается готовым блоком и концом хода */
+  activity?: Activity;
   /** запрос к модели не прошёл и повторяется (гаснет с первым ответом модели или концом хода) */
   retry?: { attempt: number; maxRetries: number; delayMs: number; status: number | null; error: string; at: number };
   lastResult?: { costUsd?: number; numTurns?: number; durationMs?: number; subtype?: string };
@@ -895,6 +903,24 @@ export class SupervisorClient {
     this.pending.clear();
   }
 
+  // ─── «С сервера»: ключи пользователя службы ───
+  /** Открытые SSH-ключи пользователя службы (приватные сервер не отдаёт). Ошибка — исключением (CmdError). */
+  async keysList(): Promise<ServerKey[]> {
+    const r = await this.request({ type: 'cmd:keys.list' });
+    return ((r.data as { keys?: ServerKey[] } | undefined)?.keys) ?? [];
+  }
+
+  async keysCreate(): Promise<ServerKey | null> {
+    const r = await this.request({ type: 'cmd:keys.create' }, 30_000);
+    return (r.data as { key?: ServerKey } | undefined)?.key ?? null;
+  }
+
+  /** Вход в GitHub с сервера (ssh -T git@github.com под пользователем службы). */
+  async keysCheck(): Promise<GithubCheck> {
+    const r = await this.request({ type: 'cmd:keys.check' }, 40_000);
+    return r.data as GithubCheck;
+  }
+
   /** Команда «выстрелил и забыл», но ошибка — в тост. */
   private fire(frame: Record<string, unknown>, what: string): Promise<Reply | null> {
     return this.request(frame).catch((e: unknown) => {
@@ -1682,6 +1708,7 @@ export class SupervisorClient {
     switch (e.type) {
       case 'event:session.state':
         if (e.state !== 'initializing') delete s.waking;
+        if (e.state !== 'working') delete s.activity;
         s.state = e.state;
         s.needs = e.needs ?? null;
         if (e.state !== 'working') { s.printing = null; delete s.retry; }
@@ -1696,6 +1723,7 @@ export class SupervisorClient {
         break;
       case 'event:message.assistant': {
         s.printing = null; // полный блок пришёл — призрак сбрасываем
+        delete s.activity;
         clearQueued(s, true);
         delete s.retry; // модель ответила — повторы позади
         const b = e.block;
@@ -1706,6 +1734,7 @@ export class SupervisorClient {
       }
       case 'event:stream.delta':
         if (e.kind === 'text') s.printing = (s.printing ?? '') + e.delta;
+        s.activity = nextActivity(s.activity, e.kind, e.delta, e.tool, Date.now());
         break;
       case 'event:message.user': {
         // результат инструмента ушёл — следующий запрос к модели возьмёт реплики «в очереди»

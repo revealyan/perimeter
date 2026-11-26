@@ -2,6 +2,7 @@
 // Слушает ТОЛЬКО 127.0.0.1 — транспорт извне через SSH-туннель (инвариант 6).
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { checkGithub, createKey, listKeys } from './serverKeys.js';
 import { randomUUID } from 'node:crypto';
 import { cpus, freemem, loadavg, tmpdir, totalmem, uptime } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -1296,6 +1297,28 @@ export class WssServer {
         this.sendReply(ws, r
           ? this.ack(f.id, { sessionId: sid, items: r.items, lastSeq: this.manager.seqLast(sid) })
           : empty());
+        return;
+      }
+      // ─── «С сервера»: ключи пользователя службы ───
+      case 'cmd:keys.list': {
+        void listKeys().then(
+          (keys) => this.sendReply(ws, this.ack(f.id, { keys })),
+          (err) => this.sendReply(ws, this.err(f.id, 'KEYS_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      case 'cmd:keys.create': {
+        void createKey().then(
+          (key) => this.sendReply(ws, this.ack(f.id, { key })),
+          (err) => this.sendReply(ws, this.err(f.id, 'KEYS_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      case 'cmd:keys.check': {
+        void checkGithub().then(
+          (r) => this.sendReply(ws, this.ack(f.id, r)),
+          (err) => this.sendReply(ws, this.err(f.id, 'KEYS_FAILED', String((err as Error).message ?? err))),
+        );
         return;
       }
       case 'cmd:session.wake': {

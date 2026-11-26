@@ -14,6 +14,7 @@ import { clock, countOf } from '../lib/ru';
 import { STATE_LABEL } from './labels';
 import { explainApiError, isApiErrorText, retryLine } from '../lib/apiErrors';
 import { requestComposerAction } from '../composeBus';
+import { activityText, queuedTailStart } from '../lib/activity';
 
 /** Уже этой ширины «Рядом» в дифе не влезает — построчно. */
 const COMPACT_W = 760;
@@ -100,7 +101,11 @@ export function Feed({ session, client, onOpenChange, onOpenSession }: {
   }, [client, session, onOpenSession]);
   // вызов, на котором стоит запрос разрешения: после ресинка он помечен законченным, но результата нет
   const waiting = new Set(session.permissions.filter((p) => !p.questions?.length).map((p) => `${p.toolName}|${JSON.stringify(p.input)}`));
-  const last = blocks[blocks.length - 1];
+  // реплики «в очереди» в конце ленты — отдельным хвостом: над ним строка активности (что агент делает сейчас)
+  const tailFrom = queuedTailStart(blocks);
+  const head = blocks.slice(0, tailFrom);
+  const queuedTail = blocks.slice(tailFrom);
+  const last = head[head.length - 1];
   // ответ печатается в открытый блок агента; если его нет (только что спросили) — в новый
   const printInLast = last?.kind === 'agent' && !last.turn;
 
@@ -128,10 +133,10 @@ export function Feed({ session, client, onOpenChange, onOpenSession }: {
               <div className="dim">Напишите задачу — сессия живёт на сервере и переживёт обрыв связи.</div>
             </div>
           )}
-          {blocks.map((b, i) => {
+          {head.map((b, i) => {
             if (b.kind === 'user') return <UserBlock key={b.key} item={b.item} />;
             if (b.kind === 'event') return <EventLine key={b.key} item={b.item} />;
-            const isLast = i === blocks.length - 1;
+            const isLast = i === head.length - 1;
             return (
               <AgentBlock
                 key={b.key}
@@ -159,6 +164,9 @@ export function Feed({ session, client, onOpenChange, onOpenSession }: {
             />
           )}
           {session.retry && <RetryLine retry={session.retry} gateway={client.profiles.find((p) => p.name === session.profile)?.keyEditable === true} />}
+          {/* ход идёт — что именно делается (как «Thinking…» в Claude Code): не кажется, что всё зависло */}
+          {session.state === 'working' && session.permissions.length === 0 && !session.retry && <ActivityLine session={session} />}
+          {queuedTail.map((b) => (b.kind === 'user' ? <UserBlock key={b.key} item={b.item} /> : null))}
           {/* ход упал ошибкой API и не идёт повтор — «повторить» и «сменить модель» */}
           {retryPrompt(session) !== null && session.retry === undefined && session.state !== 'working' && (
             <div className="turn-error-actions" role="group" aria-label="Ход упал">
@@ -259,6 +267,19 @@ function AgentBlock({ block, model, live, printing, compact, waiting, onOpenChan
 }
 
 /** Запрос к модели повторяется: что случилось и что делать, пока Claude Code ждёт следующей попытки. */
+/** Строка активности: что модель шлёт прямо сейчас / какой инструмент выполняется; тишина дольше 20 с — видна. */
+function ActivityLine({ session }: { session: SessionView }) {
+  const now = useNow(true);
+  const lastTool = [...session.items].reverse().find((it) => it.kind === 'tool-use');
+  const runningTool = !session.activity && lastTool && lastTool.data['done'] !== true ? String(lastTool.data['name'] ?? '') || null : null;
+  return (
+    <div className="activity-line" role="status" aria-live="polite">
+      <span className="activity-dots" aria-hidden><span /><span /><span /></span>
+      <span>{activityText(session.activity, runningTool, now)}</span>
+    </div>
+  );
+}
+
 function RetryLine({ retry, gateway }: { retry: NonNullable<SessionView['retry']>; gateway: boolean }) {
   const why = explainApiError({ status: retry.status, error: retry.error, gateway });
   return (

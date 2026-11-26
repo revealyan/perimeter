@@ -115,10 +115,19 @@ function scriptedFactory(sess: { cwd?: string; model?: string; permissionMode?: 
           }
           yield assistant([{ type: 'text', text: t }]);
         }
-        async function* tool(name: string, toolInput: unknown, output: unknown, opts: { isError?: boolean; delay?: number; ask?: boolean } = {}): AsyncGenerator<SdkMsg> {
+        async function* tool(name: string, toolInput: unknown, output: unknown, opts: { isError?: boolean; delay?: number; ask?: boolean; streamMs?: number } = {}): AsyncGenerator<SdkMsg> {
           if (interrupted) return;
           turns += 1;
           const id = `toolu_${randomUUID().slice(0, 12)}`;
+          if (opts.streamMs) {
+            // как настоящая модель: вход инструмента приходит кусками (длинный Write — минуты), строка активности это видит
+            yield { type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id, name, input: {} } } } as SdkMsg;
+            const json = JSON.stringify(toolInput);
+            for (let i = 0; i < json.length && !interrupted; i += 60) {
+              yield { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: json.slice(i, i + 60) } } } as SdkMsg;
+              await sleep(opts.streamMs);
+            }
+          }
           yield assistant([{ type: 'tool_use', id, name, input: toolInput }]);
           let out = output;
           let isError = opts.isError === true;
@@ -212,6 +221,11 @@ function scriptedFactory(sess: { cwd?: string; model?: string; permissionMode?: 
           if (sessionId !== undefined) {
             manager.send(sessionId, `[воркер «разведка GLM» · zai · 10 с · ходов 2 · сессия ${childId}]\nОбзор готов: три панели (лента, сайдбар, правая панель), кольцо контекста читается в App.tsx.`);
           }
+        } else if (/файл/i.test(text)) {
+          yield* say('Запишу новый модуль целиком.');
+          const body = Array.from({ length: 160 }, (_, i) => `export const step${i} = (x: number): number => x * ${i + 1}; // шаг ${i}`).join('\n');
+          yield* tool('Write', { file_path: `${cwd}/packages/supervisor/src/steps.ts`, content: body }, { type: 'create', filePath: `${cwd}/packages/supervisor/src/steps.ts` }, { streamMs: 25 });
+          yield* say('Готово: модуль записан.');
         } else if (/долго/i.test(text)) {
           yield* say('Это длинный ответ, чтобы было время нажать Stop. '.repeat(40), 60);
         } else {

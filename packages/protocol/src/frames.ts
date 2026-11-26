@@ -516,6 +516,14 @@ export const cmdSessionStop = cmdBase.extend({ type: z.literal('cmd:session.stop
  * woken | alive | limit (лимит живых процессов/памяти: проснётся сообщением, как раньше).
  */
 export const cmdSessionWake = cmdBase.extend({ type: z.literal('cmd:session.wake') });
+/**
+ * «С сервера» (настройки подключения): открытые SSH-ключи пользователя службы — копировать в GitHub/на другие машины
+ * (data.keys), создать ключ ed25519 без пароля (data.key), проверить вход в GitHub (data: ok, login?, message,
+ * hostKeysAdded — дописаны опубликованные ключи хоста github.com). Приватные ключи сервер не отдаёт.
+ */
+export const cmdKeysList = cmdBase.extend({ type: z.literal('cmd:keys.list') });
+export const cmdKeysCreate = cmdBase.extend({ type: z.literal('cmd:keys.create') });
+export const cmdKeysCheck = cmdBase.extend({ type: z.literal('cmd:keys.check') });
 
 // ─── Панели: файлы, git, терминал, порты ───────────────────────────────────
 // Корень всех путей — папка сессии из шапки кадра (sessionId); пути в кадрах — относительно корня.
@@ -708,6 +716,8 @@ export const eventStreamDelta = eventBase.extend({
   type: z.literal('event:stream.delta'),
   kind: z.enum(['text', 'thinking', 'input_json']),
   delta: z.string(),
+  /** input_json: имя инструмента — в первом кадре вызова (delta пустая), чтобы окно показало «готовит Write…» */
+  tool: z.string().optional(),
 });
 
 export const eventMessageUser = eventBase.extend({
@@ -1002,7 +1012,7 @@ export const cmdMcpSharedRemove = cmdBase.extend({ type: z.literal('cmd:mcp.shar
 
 export const CmdSchema = z.discriminatedUnion('type', [
   cmdHello, cmdSessionList, cmdSessionNew, cmdSessionOpen,
-  cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop, cmdSessionWake,
+  cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop, cmdSessionWake, cmdKeysList, cmdKeysCreate, cmdKeysCheck,
   cmdSessionSettings, cmdSessionContext, cmdProfileModels, cmdProfileUsage, cmdProfileUpdate,
   cmdProfileAdd, cmdProfileCheck, cmdProfileLoginStart, cmdProfileLoginCode, cmdProfileLoginCancel,
   cmdProfileTokenStart, cmdProfileTokenTake,
@@ -1045,7 +1055,7 @@ export const KNOWN_EVENT_TYPES: readonly string[] = [
 export const KNOWN_CMD_TYPES: readonly string[] = [
   'cmd:hello', 'cmd:session.list', 'cmd:session.new', 'cmd:session.open',
   'cmd:message.send', 'cmd:permission.respond', 'cmd:interrupt', 'cmd:session.fork', 'cmd:transcript.get',
-  'cmd:session.stop', 'cmd:session.wake', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
+  'cmd:session.stop', 'cmd:session.wake', 'cmd:keys.list', 'cmd:keys.create', 'cmd:keys.check', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
   'cmd:profile.add', 'cmd:profile.check', 'cmd:profile.login.start', 'cmd:profile.login.code', 'cmd:profile.login.cancel',
   'cmd:profile.token.start', 'cmd:profile.token.take',
   'cmd:mcp.list', 'cmd:mcp.add', 'cmd:mcp.remove', 'cmd:mcp.login.start', 'cmd:mcp.catalog.search',

@@ -139,6 +139,10 @@ try {
     await new Promise((r) => setTimeout(r, 3000));
     const qm = gq.requests.filter((r) => r.tools.length > 0).map((r) => (JSON.stringify(r.body['messages']).includes('два') ? 'с «два»' : 'без «два»'));
     check('реплика посреди хода — в том же ходе, без лишнего хода', JSON.stringify(qm) === JSON.stringify(['без «два»', 'с «два»']), JSON.stringify(qm));
+    // строка активности: имя инструмента приходит окну в начале вызова, до готового блока (вход ещё пишется)
+    const toolStart = frames.findIndex((f) => f.type === 'event:stream.delta' && f['sessionId'] === sid4 && f['tool'] === 'Read');
+    const toolDone = frames.findIndex((f) => f.type === 'event:message.assistant' && f['sessionId'] === sid4 && (f['block'] as { type?: string } | undefined)?.type === 'tool_use');
+    check('активность: «готовит Read» приходит до готового вызова', toolStart >= 0 && toolDone > toolStart, `кадр имени #${toolStart}, готовый вызов #${toolDone}`);
   } else {
     check('реплика посреди хода — в том же ходе, без лишнего хода', false, 'не создалась сессия на профиле gwq');
   }

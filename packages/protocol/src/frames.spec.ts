@@ -20,6 +20,9 @@ const cmdSamples = [
   { v: PROTOCOL_VERSION, ts, id: 'c8', type: 'cmd:transcript.get', afterUuid: 'u-1' },
   { v: PROTOCOL_VERSION, ts, id: 'c9', sessionId: sid, type: 'cmd:session.stop' },
   { v: PROTOCOL_VERSION, ts, id: 'c9w', sessionId: sid, type: 'cmd:session.wake' },
+  { v: PROTOCOL_VERSION, ts, id: 'k1', type: 'cmd:keys.list' },
+  { v: PROTOCOL_VERSION, ts, id: 'k2', type: 'cmd:keys.create' },
+  { v: PROTOCOL_VERSION, ts, id: 'k3', type: 'cmd:keys.check' },
 ] as const;
 
 const eventSamples = [

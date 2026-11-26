@@ -6,6 +6,7 @@ import type { EnvId, SessionView, SupervisorClient, ClientSet } from '../supervi
 import { envLabel, envShort, isRemote, profileLabel } from '../supervisor';
 import { LOCAL, connections } from '../connections';
 import { groupOf, waitingInfo, type GroupId } from '../lib/sessionGroups';
+import { activityText } from '../lib/activity';
 import { layoutEnvs, mergeProjects, projectGroups } from '../lib/envSections';
 import { lastAction } from '../lib/feedModel';
 import { STATE_LABEL, ago } from './labels';
@@ -192,7 +193,8 @@ function SessionRow({ s, client, env, active, onSelect, project, group, inProjec
         <>
           <div className="srow-sub">
             {!inProject && <><ProjectTag name={project} /> · </>}
-            <span className="srow-action mono">{lastAction(s.items, s.printing)}</span>
+            {/* пока модель пишет — то же, что строка активности в ленте («готовит Write…»), без счётчика тишины */}
+            <span className="srow-action mono">{s.activity ? activityText(s.activity, null, s.activity.at) : lastAction(s.items, s.printing)}</span>
           </div>
           <div className="srow-progress" aria-hidden><span /></div>
         </>

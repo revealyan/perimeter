@@ -378,6 +378,12 @@ export class SessionEngine {
     if (msg.parent_tool_use_id) return;
     const ev = msg.event;
     if (ev.type === 'content_block_start' && ev.content_block?.type === 'thinking') { this.streamThinking = ''; return; }
+    // начался вызов инструмента: имя — сразу, пока модель пишет его вход (длинный Write — минуты тишины в ленте)
+    if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+      const name = (ev.content_block as { name?: unknown }).name;
+      if (typeof name === 'string' && name) this.emit({ type: 'event:stream.delta', kind: 'input_json', delta: '', tool: name });
+      return;
+    }
     if (ev.type !== 'content_block_delta' || !ev.delta) return;
     const d = ev.delta;
     if (d.type === 'text_delta' && d.text !== undefined) {
