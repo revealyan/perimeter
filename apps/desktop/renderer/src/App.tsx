@@ -25,6 +25,7 @@ import { afterPaint, requestComposerInsert } from './composeBus';
 import { COMPOSER_STYLE_KEY, draftKey, parseComposerStyle, type ComposerStyle } from './lib/composerModel';
 import { localSupBusy } from './lib/localSup';
 import { serverUpdateText, type ServerUpdateEvent } from './lib/updateModel';
+import { isCold, sendHold } from './lib/wake';
 
 const PANEL_KEY = 'perimeter:panel';
 
@@ -408,7 +409,10 @@ export default function App() {
                   tools={<><ModelPicker session={active} client={client} /><EffortPicker session={active} client={client} /><UltracodeToggle session={active} client={client} /><ModePicker session={active} client={client} /></>}
                   disabled={client.status !== 'live'}
                   busy={active.state === 'working' || active.state === 'waiting_permission' || active.state === 'waiting_input'}
-                  hint={active.state === 'dead' ? 'Сессия остыла — напишите, и она поднимется с историей' : undefined}
+                  // будим при выборе: «спит» видно, только если разбудить заранее не вышло (лимит, старый supervisor)
+                  hint={isCold(active.state) && active.waking === undefined ? 'Сессия спит — первое сообщение разбудит её с историей' : undefined}
+                  hold={client.status === 'live' ? sendHold(active, Date.now()) : null}
+                  onInput={() => client.wake(active.id, 'typing')}
                   onSend={(text, images) => client.sendText(active.id, text, images)}
                   onStop={() => client.interrupt(active.id)}
                 />

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { layoutEnvs, mergeProjects, projectGroups } from './envSections';
 
-type S = { id: string; name: string; state: string; archived?: boolean; lastActivity: number; sortAt?: number; permissions: never[] | Array<{ requestId: string; toolName: string; input: unknown; at: number }>; items: Array<{ id: string; kind: 'text'; data: Record<string, unknown> }>; projectId?: string; lastResult?: undefined; parentSessionId?: string };
+type S = { id: string; name: string; state: string; archived?: boolean; lastActivity: number; sortAt?: number; permissions: never[] | Array<{ requestId: string; toolName: string; input: unknown; at: number }>; items: Array<{ id: string; kind: 'text'; data: Record<string, unknown> }>; projectId?: string; lastResult?: undefined; parentSessionId?: string; waking?: number };
 const mk = (id: string, state: string, t: number, o: Partial<S> = {}): S => ({ id, name: id, state, lastActivity: t, permissions: [], items: [], ...o });
 const done = [{ id: 'x', kind: 'text' as const, data: {} }];
 
@@ -28,12 +28,22 @@ describe('layoutEnvs — S1 «Среды секциями»', () => {
     expect(l.waiting.map((w) => [w.env, w.s.id])).toEqual([['local', 'черновик'], ['vps', 'редизайн']]);
   });
 
-  it('в секции — без ждущих, по статусу (работают → готовы → остыли), счётчик — все живые среды', () => {
+  it('в секции — без ждущих: сверху работающие, остальные (готовы/остыли) — по давности; счётчик — все живые среды', () => {
     const l = layoutEnvs(inputs);
     const v = l.sections.find((s) => s.env === 'vps')!;
-    expect(v.rows.map((r) => [r.s.id, r.group])).toEqual([['деплой', 'working'], ['ролики', 'ready'], ['метрики', 'cold']]);
+    // «метрики» остыла позже, чем «ролики» закончили ход — выше: сон строку не двигает, только иконка
+    expect(v.rows.map((r) => [r.s.id, r.group])).toEqual([['деплой', 'working'], ['метрики', 'cold'], ['ролики', 'ready']]);
     expect(v.total).toBe(4);
     expect(l.total).toBe(6);
+  });
+
+  it('сон и пробуждение строку не двигают: остыла/проснулась — та же позиция; просыпается по выбору — не «работает»', () => {
+    const rows = (list: S[]) => layoutEnvs([{ env: 'vps' as const, sessions: list, projectName: () => undefined }]).sections[0]!.rows.map((r) => [r.s.id, r.group]);
+    const a = mk('a', 'idle', 30, { items: done });
+    const b = mk('b', 'idle', 20, { items: done });
+    expect(rows([a, b])).toEqual([['a', 'ready'], ['b', 'ready']]);
+    expect(rows([{ ...a, state: 'dead' }, b])).toEqual([['a', 'cold'], ['b', 'ready']]);
+    expect(rows([{ ...a, state: 'initializing', waking: 1 } as S, b])).toEqual([['a', 'cold'], ['b', 'ready']]);
   });
 
   it('архив общий, с меткой среды', () => {

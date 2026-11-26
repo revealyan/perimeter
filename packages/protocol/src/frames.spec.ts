@@ -19,6 +19,7 @@ const cmdSamples = [
   { v: PROTOCOL_VERSION, ts, id: 'c10', sessionId: sid, type: 'cmd:session.fork' },
   { v: PROTOCOL_VERSION, ts, id: 'c8', type: 'cmd:transcript.get', afterUuid: 'u-1' },
   { v: PROTOCOL_VERSION, ts, id: 'c9', sessionId: sid, type: 'cmd:session.stop' },
+  { v: PROTOCOL_VERSION, ts, id: 'c9w', sessionId: sid, type: 'cmd:session.wake' },
 ] as const;
 
 const eventSamples = [

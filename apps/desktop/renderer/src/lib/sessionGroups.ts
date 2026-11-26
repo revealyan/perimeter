@@ -14,7 +14,7 @@ export const GROUP_LABEL: Record<GroupId, string> = {
 };
 const ORDER: GroupId[] = ['waiting', 'working', 'ready', 'fresh', 'cold'];
 
-export type SessionLike = Pick<SessionView, 'id' | 'name' | 'state' | 'archived' | 'lastActivity' | 'sortAt' | 'permissions' | 'items' | 'lastResult' | 'projectId' | 'parentSessionId'>;
+export type SessionLike = Pick<SessionView, 'id' | 'name' | 'state' | 'archived' | 'lastActivity' | 'sortAt' | 'permissions' | 'items' | 'lastResult' | 'projectId' | 'parentSessionId' | 'waking'>;
 
 /** Момент для порядка в списках: sortAt (заморожен на время хода), нет — lastActivity. */
 export const orderAt = (s: { lastActivity: number; sortAt?: number }): number => s.sortAt ?? s.lastActivity;
@@ -27,6 +27,8 @@ export function hasResult(s: Pick<SessionView, 'lastResult' | 'items'>): boolean
 /** Группа сессии по состоянию. */
 export function groupOf(s: SessionLike): GroupId {
   if (s.state === 'waiting_permission' || s.state === 'waiting_input' || s.permissions.length > 0) return 'waiting';
+  // просыпается по просьбе окна (выбрали) — ещё «остыла», а не «работает»: иначе строка мигнёт прогрессом
+  if (s.state === 'initializing' && s.waking !== undefined) return 'cold';
   if (s.state === 'working' || s.state === 'initializing' || s.state === 'creating') return 'working';
   if (s.state === 'dead' || s.state === 'error') return 'cold';
   return hasResult(s) ? 'ready' : 'fresh';

@@ -68,9 +68,18 @@ class DemoSessionManager extends SessionManager {
 
 // ─── сценарный движок ───────────────────────────────────────────────────────
 
+/** Пробуждение остывшей на стенде (respawn): процесс «поднимается» дольше — видно «просыпается…» (DEMO_WAKE_MS). */
+const DEMO_WAKE_MS = Number(process.env['DEMO_WAKE_MS'] ?? 1500);
+/** id транскрипта сессии стенда — тот же после пробуждения (resume), иначе ресинк потерял бы историю */
+const demoClaudeIds = new Map<string, string>();
+
 function scriptedFactory(sess: { cwd?: string; model?: string; permissionMode?: string; projectId?: string }, sessionId?: string) {
   return (input: AsyncIterable<SdkUserInput>, hooks: EngineHooks): QueryLike => {
-    const claudeId = randomUUID();
+    const resumed = sessionId !== undefined && demoClaudeIds.has(sessionId);
+    const claudeId = (sessionId !== undefined ? demoClaudeIds.get(sessionId) : undefined) ?? randomUUID();
+    if (sessionId !== undefined) demoClaudeIds.set(sessionId, claudeId);
+    // как у настоящего CLI: initialize отвечен, когда процесс поднялся; после resume init — только с первым ходом
+    const readyMs = resumed ? DEMO_WAKE_MS : 700;
     // тот же cwd, что видит менеджер (DemoSessionManager) — иначе ресинк не найдёт транскрипт
     const cwd = demoCwd(sess.cwd);
     const tpath = transcriptPath(process.env.CLAUDE_CONFIG_DIR!, cwd, claudeId);
@@ -82,8 +91,8 @@ function scriptedFactory(sess: { cwd?: string; model?: string; permissionMode?: 
     let ctxTokens = 21_800;
 
     async function* run(): AsyncGenerator<SdkMsg> {
-      await sleep(700); // «стартует»: скелетон ленты
-      yield { type: 'system', subtype: 'init', session_id: claudeId, tools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Task', 'AskUserQuestion', 'WebFetch'], mcp_servers: [{ name: 'serena', status: 'connected' }], model, permissionMode: mode } as SdkMsg;
+      await sleep(readyMs); // «стартует»: скелетон ленты
+      if (!resumed) yield { type: 'system', subtype: 'init', session_id: claudeId, tools: ['Bash', 'Read', 'Edit', 'Write', 'Glob', 'Grep', 'Task', 'AskUserQuestion', 'WebFetch'], mcp_servers: [{ name: 'serena', status: 'connected' }], model, permissionMode: mode } as SdkMsg;
       for await (const m of input) {
         log({ type: 'user', message: m.message });
         interrupted = false;
@@ -258,6 +267,7 @@ function scriptedFactory(sess: { cwd?: string; model?: string; permissionMode?: 
       [Symbol.asyncIterator]: () => g,
       interrupt: async () => { interrupted = true; },
       close: async () => { await g.return(undefined); },
+      initializationResult: () => sleep(readyMs).then(() => ({})),
       setModel: async (m: string) => { model = m; },
       setPermissionMode: async (m: string) => { mode = m; },
       // усилие/ultracode на лету: на стенде просто принимаем (видно по ack и event:hello)
@@ -456,6 +466,10 @@ if (flavor === 'local') {
   await sleep(900);
   manager.send(s1, 'Сделай обзор клиента и почини кольцо контекста');
   manager.send(s2, 'Пересобери клиент — нужно разрешение на удаление dist');
+  // уснувшая сессия с историей: ход прошёл, процесс погашен — при выборе окно будит её заранее («просыпается…»)
+  const s5 = mk('ночной рефакторинг', { cwd: DEMO_ROOT, profile: 'yan', projectId: pCode.id, model: 'sonnet' });
+  manager.send(s5, 'Проверь типы — там ошибка');
+  setTimeout(() => { void manager.stop(s5); }, 6000);
 }
 
 console.log(`demo-supervisor: ws://127.0.0.1:${actualPort} · данные ${root} · панели в ${DEMO_ROOT}`);

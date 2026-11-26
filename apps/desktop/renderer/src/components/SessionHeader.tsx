@@ -4,6 +4,7 @@ import type { SessionView, SupervisorClient } from '../supervisor';
 import { envLabel } from '../supervisor';
 import type { PanelTab } from '../lib/panelLayout';
 import { STATE_LABEL } from './labels';
+import { isWaking } from '../lib/wake';
 import { Icon, type IconName } from './Icon';
 import { ProjectTag } from './ui';
 
@@ -33,13 +34,16 @@ export function SessionHeader({ session, client, projectName, panelOpen, panelTa
   onTogglePanel: () => void;
 }) {
 
+  // просыпается по выбору — не «запускается» (это для новой сессии и после сообщения)
+  const waking = isWaking(session, Date.now());
+  const stateLabel = waking ? 'просыпается' : STATE_LABEL[session.state] ?? session.state;
   return (
     <header className="topbar">
       <div className="topbar-title">
         <span className="topbar-project"><ProjectTag name={projectName} /></span>
         <span className="topbar-slash">/</span>
         <span className="topbar-name" title={session.name}>{session.name}</span>
-        <span className={`badge st-${session.state}`} data-tip={STATE_LABEL[session.state] ?? session.state}><span className="badge-dot" /><span className="badge-text">{STATE_LABEL[session.state] ?? session.state}</span></span>
+        <span className={`badge st-${waking ? 'dead' : session.state}`} data-tip={stateLabel}><span className="badge-dot" /><span className="badge-text">{stateLabel}</span></span>
       </div>
       <div className="topbar-controls">
         <div className="icon-group" role="toolbar" aria-label="Панели">

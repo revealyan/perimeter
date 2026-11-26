@@ -1,8 +1,9 @@
 // Сборка supervisor'а: менеджер сессий + WSS + SDK-фабрики + профили (мультиакк) + пул + персистентность.
 
-import { homedir } from 'node:os';
+import { freemem, homedir, totalmem } from 'node:os';
 import { dirname, join } from 'node:path';
-import { SessionManager, type SpawnInfo } from './session/manager.js';
+import { SessionManager, type LiveLimits, type SpawnInfo } from './session/manager.js';
+import { defaultLiveLimits } from './session/liveLimits.js';
 import { fetchSupportedModels, fetchUsageApi, sdkFactory, thinkingOption } from './session/sdk.js';
 import { fetchZaiUsage, usageFromUsageApi } from './usage.js';
 import type { Options } from '@anthropic-ai/claude-agent-sdk';
@@ -43,6 +44,8 @@ export interface SupervisorOptions {
   poolProfileSize?: number;
   /** скашивание простоя: мс без активности до остановки процесса (0 = выкл; дефолт из env) */
   idleTimeoutMs?: number;
+  /** лимиты живых процессов (будим заранее — их надо держать в узде); по умолчанию — от памяти машины */
+  liveLimits?: LiveLimits;
   /** спрашивать у Claude Code списки моделей auto-аккаунтов в фоне после старта (по умолчанию да) */
   refreshModels?: boolean;
   /**
@@ -53,7 +56,7 @@ export interface SupervisorOptions {
 }
 
 export async function startSupervisor(opts: SupervisorOptions): Promise<{ manager: SessionManager; server: WssServer; port: number; stop: () => Promise<void>; pool: ProfilePools | null }> {
-  const manager = new SessionManager(opts.idleTimeoutMs ?? 0);
+  const manager = new SessionManager(opts.idleTimeoutMs ?? 0, opts.liveLimits ?? defaultLiveLimits(totalmem(), process.env, freemem));
   const stateFile = opts.stateFile ?? join(homedir(), '.perimeter', 'state.json');
   const store = new StateStore(stateFile);
   // текст размышлений — рядом с реестром (транскрипт Claude Code хранит thinking без текста)

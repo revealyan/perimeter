@@ -613,6 +613,10 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .composer.is-panel textarea { flex: 1; min-height: 44px; overflow-y: auto; }
 .composer-saved { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: var(--dim); white-space: nowrap; }
 .composer-saved svg { color: var(--ok); }
+/* отправка ждёт: сессия просыпается / лента догружается — тихая подпись у кнопки, без модалок */
+.composer-hold { font-size: var(--fs-sm); color: var(--dim); white-space: nowrap; animation: composer-hold-pulse 1.2s ease-in-out infinite; }
+@keyframes composer-hold-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .composer-hold { animation: none; } }
 .composer-send-btn { gap: 6px; }
 @container center (max-width: 760px) { .composer .kh-extra { display: none; } }
 @container center (max-width: 560px) { .composer-keys, .composer-saved { display: none; } }

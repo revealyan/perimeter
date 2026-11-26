@@ -103,6 +103,12 @@ interface Entry {
   runPromise: Promise<void>;
   opts: SessionCreateOptions;
   idleTimer: ReturnType<typeof setTimeout> | null;
+  /** последнее касание (выбор в окне, набор, отправка, смена состояния) — кого вытеснять первым при лимите */
+  touchedAt: number;
+  /** разбужена заранее (wake) и хода с тех пор не было — гасится по короткому простою */
+  wokeUnused: boolean;
+  /** гасится ради места (makeRoom): stop асинхронный — пока идёт, в живых не считаем и второй раз не выбираем */
+  evicting: boolean;
   /** неотвеченные карточки разрешений: исходные кадры (с исходным seq) — для досылки свежему клиенту */
   pending: Map<string, Extract<Event, { type: 'event:permission.request' }>>;
 }
@@ -125,6 +131,21 @@ function needsOf(req: { toolName: string; questions?: Array<{ question: string }
   return Array.isArray(req.questions) && req.questions[0] ? req.questions[0].question : `разрешение: ${req.toolName}`;
 }
 
+/**
+ * Живые процессы (владелец 2026-11-26: «если будить много сессий — будет много Claude Code, надо менеджерить»).
+ * Будим заранее (окно выбрало сессию), поэтому число живых ограничено: сверх лимита первой гасится давно не
+ * тронутая простаивающая; занятые (ход, карточка) не трогаем никогда. Отправка будит всегда — лимит для неё мягкий.
+ */
+export interface LiveLimits {
+  /** сколько процессов claude держать живыми (по умолчанию без лимита; supervisor считает от памяти) */
+  maxLive?: number;
+  /** простой разбуженной заранее, но так и не получившей хода (короче обычного — не копим «посмотрел и ушёл») */
+  wakeIdleMs?: number;
+  /** свободная память, байт (os.freemem) — заранее не будим, если её меньше minFreeBytes */
+  freeMem?: () => number;
+  minFreeBytes?: number;
+}
+
 export class SessionManager {
   private sessions = new Map<string, Entry>();
   private subscribers = new Set<Subscriber>();
@@ -135,10 +156,20 @@ export class SessionManager {
   /** Куда отдавать лимиты подписки из сессий (аккаунт сессии + rate_limit_info) — usage у wss. */
   rateLimitSink: ((profile: string | undefined, info: unknown) => void) | null = null;
   private readonly idleTimeoutMs: number;
+  private readonly live: Required<LiveLimits>;
 
-  /** idleTimeoutMs > 0: простаивающую сессию останавливаем (dead), сообщение поднимет через resume */
-  constructor(idleTimeoutMs = 0) {
+  /**
+   * idleTimeoutMs > 0: простаивающую сессию останавливаем (dead), сообщение поднимет через resume.
+   * live — сколько процессов claude держать живыми и когда не будить заранее (см. LiveLimits).
+   */
+  constructor(idleTimeoutMs = 0, live: LiveLimits = {}) {
     this.idleTimeoutMs = idleTimeoutMs;
+    this.live = {
+      maxLive: live.maxLive ?? Infinity,
+      wakeIdleMs: live.wakeIdleMs ?? 5 * 60_000,
+      freeMem: live.freeMem ?? (() => Infinity),
+      minFreeBytes: live.minFreeBytes ?? 0,
+    };
   }
 
   /** хук персистентности: дёргается после каждого кадра (инвариант 1/2) */
@@ -241,6 +272,9 @@ export class SessionManager {
           ...(forkFactory ? { forkFactory } : {}),
         },
         idleTimer: null,
+        touchedAt: 0,
+        wokeUnused: false,
+        evicting: false,
         pending: new Map(),
       });
     }
@@ -464,7 +498,12 @@ export class SessionManager {
    */
   send(sessionId: string, text: string, images?: string[]): void {
     const s = this.require(sessionId);
-    if (s.info.state === 'dead' || s.info.state === 'error') this.respawn(sessionId);
+    s.wokeUnused = false;
+    s.touchedAt = Date.now();
+    if (s.info.state === 'dead' || s.info.state === 'error') {
+      this.makeRoom(sessionId); // мягко: не нашлось кого погасить — всё равно будим, сообщение важнее лимита
+      this.respawn(sessionId);
+    }
     s.engine.send(text, images);
     if (s.info.state === 'idle' || s.info.state === 'initializing') this.setState(sessionId, 'working');
   }
@@ -485,6 +524,52 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Разбудить заранее (окно открыло сессию, начали печатать): остывшую — процесс с resume без хода, к отправке он
+   * уже поднят; живую — продлить простой. limit — живых уже maxLive и гасить некого (все заняты) или мало памяти:
+   * проснётся сообщением, как раньше.
+   */
+  wake(sessionId: string): 'woken' | 'alive' | 'limit' {
+    const s = this.require(sessionId);
+    s.touchedAt = Date.now();
+    const st = s.info.state;
+    if (st !== 'dead' && st !== 'error') {
+      if (st === 'idle') this.armIdle(sessionId, s);
+      return 'alive';
+    }
+    if (this.live.freeMem() < this.live.minFreeBytes) return 'limit';
+    if (!this.makeRoom(sessionId)) return 'limit';
+    s.wokeUnused = true;
+    this.respawn(sessionId);
+    return 'woken';
+  }
+
+  /** Сколько процессов claude живо (всё, кроме остывших и упавших). */
+  liveCount(): number {
+    let n = 0;
+    for (const e of this.sessions.values()) if (e.info.state !== 'dead' && e.info.state !== 'error' && !e.evicting) n++;
+    return n;
+  }
+
+  /**
+   * Место под ещё один процесс: живых ≥ maxLive — гасим давно не тронутые простаивающие (кроме самой сессии).
+   * false — гасить некого (живые заняты ходом/карточкой).
+   */
+  private makeRoom(exceptId: string): boolean {
+    let live = this.liveCount();
+    if (live < this.live.maxLive) return true;
+    const idle = [...this.sessions.entries()]
+      .filter(([id, e]) => id !== exceptId && e.info.state === 'idle' && !e.evicting)
+      .sort((a, b) => a[1].touchedAt - b[1].touchedAt);
+    for (const [id, e] of idle) {
+      if (live < this.live.maxLive) break;
+      e.evicting = true;
+      void this.stop(id).catch(() => undefined).finally(() => { e.evicting = false; });
+      live--;
+    }
+    return live < this.live.maxLive;
+  }
+
   async stop(sessionId: string): Promise<void> {
     const s = this.require(sessionId);
     const engine = s.engine;
@@ -499,7 +584,7 @@ export class SessionManager {
   private launch(id: string, info: SessionInfo, opts: SessionCreateOptions, factory: EngineFactory): void {
     const entry: Entry = {
       info, seq: new SeqCounter(), engine: this.makeEngine(id, factory, opts.permissionTimeoutMs),
-      runPromise: Promise.resolve(), opts, idleTimer: null, pending: new Map(),
+      runPromise: Promise.resolve(), opts, idleTimer: null, touchedAt: Date.now(), wokeUnused: false, evicting: false, pending: new Map(),
     };
     this.sessions.set(id, entry);
     this.createdHook?.({ ...info });
@@ -514,6 +599,11 @@ export class SessionManager {
       ...(permissionTimeoutMs !== undefined ? { permissionTimeoutMs } : {}),
       onThinking: (signature, text) => this.thinkingSink?.(signature, text),
       onRateLimit: (info) => this.rateLimitSink?.(this.sessions.get(sessionId)?.info.profile, info),
+      // процесс поднялся: «запускается» → «готова» сразу, не дожидаясь system/init (его CLI шлёт только с первым ходом)
+      onReady: () => {
+        const cur = this.sessions.get(sessionId);
+        if (cur && cur.engine === engine && cur.info.state === 'initializing') this.setState(sessionId, 'idle');
+      },
       onEvent: (draft) => {
         const cur = this.sessions.get(sessionId);
         if (!cur || cur.engine !== engine) return; // хвост заменённого процесса (смена профиля/respawn)
@@ -606,16 +696,10 @@ export class SessionManager {
     if (needs !== undefined) s.info.needs = needs;
     if (to !== 'waiting_permission' && to !== 'waiting_input' && needs === undefined) s.info.needs = null;
 
+    s.touchedAt = Date.now();
     // idle-reaping: простаивающую живую сессию останавливаем — сообщение поднимет через resume
-    if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
-    if (to === 'idle' && this.idleTimeoutMs > 0 && s.engine.isRunning) {
-      s.idleTimer = setTimeout(() => {
-        s.idleTimer = null;
-        if (this.sessions.get(sessionId)?.info.state === 'idle') {
-          void this.stop(sessionId).catch(() => undefined);
-        }
-      }, this.idleTimeoutMs);
-    }
+    if (to === 'idle') this.armIdle(sessionId, s);
+    else if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
 
     this.broadcast({
       v: PROTOCOL_VERSION, ts: Date.now(), sessionId, seq: s.seq.take(),
@@ -624,6 +708,19 @@ export class SessionManager {
     });
     // seq ушёл вперёд — персист (коалесцируется на стороне supervisor'а)
     this.persistHook?.();
+  }
+
+  /** Таймер простоя: обычный idleTimeoutMs; разбуженной заранее без хода — короче (wakeIdleMs). */
+  private armIdle(sessionId: string, s: Entry): void {
+    if (s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
+    if (this.idleTimeoutMs <= 0 || !s.engine.isRunning) return;
+    const ms = s.wokeUnused ? Math.min(this.idleTimeoutMs, this.live.wakeIdleMs) : this.idleTimeoutMs;
+    s.idleTimer = setTimeout(() => {
+      s.idleTimer = null;
+      if (this.sessions.get(sessionId)?.info.state === 'idle') {
+        void this.stop(sessionId).catch(() => undefined);
+      }
+    }, ms);
   }
 
   private broadcast(e: Event): void {

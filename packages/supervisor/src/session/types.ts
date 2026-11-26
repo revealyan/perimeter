@@ -93,6 +93,11 @@ export interface QueryLike extends AsyncIterable<SdkMsg> {
   getContextUsage?: (detail?: 'summary' | 'full') => Promise<unknown>;
   /** флаги сессии на лету: { effortLevel, ultracode } (SDK applyFlagSettings, только стриминговый ввод) */
   applyFlagSettings?: (settings: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * Процесс поднялся и ответил на initialize (SDK initializationResult). system/init без ввода CLI не шлёт —
+   * разбуженная заранее сессия узнаёт, что готова к отправке, только отсюда (замер 26.11: ~0,3–0,4 с).
+   */
+  initializationResult?: () => Promise<unknown>;
 }
 
 export type SdkMsgContentBlock = ContentBlock | Question; // re-export для удобства тестов

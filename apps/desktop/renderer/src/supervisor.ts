@@ -13,6 +13,8 @@ import { cacheStore, type CachedMeta } from './cache';
 import { playTurnDone, turnSoundMode } from './lib/sound';
 import { attachOrphanResults, feedFits, feedSignature, mergeCachedFeed, toCachedSession, type CachedSession } from './lib/cacheModel';
 import { clearQueued } from './lib/queued';
+import { hasResult } from './lib/sessionGroups';
+import { isCold, isQuietState, WAKE_COLD_THROTTLE_MS, WAKE_HOLD_MAX_MS, WAKE_SELECT_DELAY_MS, WAKE_TOUCH_THROTTLE_MS } from './lib/wake';
 
 /** closed — клиент закрыт намеренно (подключение выключено/удалено), не переподключается */
 export type ConnStatus = 'connecting' | 'live' | 'reconnecting' | 'closed';
@@ -80,6 +82,8 @@ export interface SessionView {
   historyLoaded?: boolean;
   /** лента лежит в локальном кэше — откроется оттуда, а сервер дошлёт только новое (догон по seq) */
   cachedFeed?: boolean;
+  /** окно попросило разбудить (выбрали/начали печатать) — когда; снимается, когда процесс поднялся или не смог */
+  waking?: number;
   /** запрос к модели не прошёл и повторяется (гаснет с первым ответом модели или концом хода) */
   retry?: { attempt: number; maxRetries: number; delayMs: number; status: number | null; error: string; at: number };
   lastResult?: { costUsd?: number; numTurns?: number; durationMs?: number; subtype?: string };
@@ -592,6 +596,10 @@ export class SupervisorClient {
   private lastSeq = new Map<string, number>();
   private cmdId = 0;
   private localId = 0;
+  /** пауза перед пробуждением выбранной сессии (листание не будит каждую) */
+  private wakeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** когда последний раз просили разбудить/продлить — не чаще порогов */
+  private wakeAt = new Map<string, number>();
   private listeners = new Set<() => void>();
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryDelay = 500;
@@ -909,8 +917,54 @@ export class SupervisorClient {
 
   select(id: string | null): void {
     this.activeId = id;
-    if (id) this.ensureHistory(id);
+    if (id) {
+      this.ensureHistory(id);
+      this.wake(id, 'select');
+    }
     this.notify();
+  }
+
+  /**
+   * Разбудить заранее (владелец 2026-11-26: «шов незаметным»): остывшую — supervisor поднимает процесс с историей,
+   * к отправке он готов; живой — продлить простой, пока на неё смотрят и пишут. select — с паузой, typing — сразу.
+   */
+  wake(sid: string, reason: 'select' | 'typing'): void {
+    if (reason === 'select') {
+      if (this.wakeTimer) clearTimeout(this.wakeTimer);
+      this.wakeTimer = setTimeout(() => {
+        this.wakeTimer = null;
+        if (this.activeId === sid) this.wakeNow(sid);
+      }, WAKE_SELECT_DELAY_MS);
+      return;
+    }
+    this.wakeNow(sid);
+  }
+
+  private wakeNow(sid: string): void {
+    const s = this.sessions.get(sid);
+    if (!s || s.archived || this.status !== 'live' || this.fromCache) return;
+    const cold = isCold(s.state);
+    if (!cold && s.state !== 'idle') return; // занята ходом/карточкой — простой и так не тикает
+    const now = Date.now();
+    if (now - (this.wakeAt.get(sid) ?? 0) < (cold ? WAKE_COLD_THROTTLE_MS : WAKE_TOUCH_THROTTLE_MS)) return;
+    this.wakeAt.set(sid, now);
+    // флаг — до запроса: кадр «initializing» приходит раньше ответа, без флага сессия мигнула бы «запускается»
+    if (cold) {
+      s.waking = now;
+      this.notify();
+      // держать отправку дольше WAKE_HOLD_MAX_MS не будем — перерисовать, даже если кадров так и не пришло
+      setTimeout(() => this.notify(), WAKE_HOLD_MAX_MS + 50);
+    }
+    const done = (woken: boolean) => {
+      const v = this.sessions.get(sid);
+      if (!cold || woken || v?.waking === undefined) return;
+      delete v.waking; // лимит/мало памяти/старый supervisor без wake — проснётся сообщением, как раньше
+      this.notify();
+    };
+    this.request({ type: 'cmd:session.wake', sessionId: sid }).then(
+      (r) => done((r.data as { result?: string } | undefined)?.result === 'woken'),
+      () => done(false),
+    );
   }
 
   /** Подтянуть историю сессии из транскрипта, если её ещё нет (при открытии сессии). */
@@ -1574,6 +1628,8 @@ export class SupervisorClient {
     // истории — только у открытой сессии: тянуть все разом через туннель до VPS — десятки секунд,
     // за которыми в очереди стоят ответы на команды; остальные подтянутся при открытии
     if (this.activeId) this.ensureHistory(this.activeId);
+    // открытая сессия остыла (рестарт supervisor'а, простой во время обрыва) — будим, пока человек читает
+    if (this.activeId) this.wake(this.activeId, 'select');
     this.refreshSync();
     this.notify();
   }
@@ -1620,10 +1676,12 @@ export class SupervisorClient {
       if (e.type !== 'event:error' || e.seq > 0) this.lastSeq.set(sid, Math.max(e.seq, this.lastSeq.get(sid) ?? -1));
     }
     const s = this.ensure(sid, sid.slice(0, 8));
-    s.lastActivity = e.ts || Date.now();
+    // сон и пробуждение без хода — не активность: иначе остывшая/разбуженная сессия прыгает наверх списка
+    if (e.type !== 'event:session.state' || !isQuietState(s.state, e.state)) s.lastActivity = e.ts || Date.now();
 
     switch (e.type) {
       case 'event:session.state':
+        if (e.state !== 'initializing') delete s.waking;
         s.state = e.state;
         s.needs = e.needs ?? null;
         if (e.state !== 'working') { s.printing = null; delete s.retry; }
@@ -1632,7 +1690,9 @@ export class SupervisorClient {
       case 'event:session.init':
         s.model = e.model;
         s.permissionMode = e.permissionMode;
-        s.items.push({ id: `i${e.seq}`, kind: 'state', data: { text: `сессия готова · ${e.model} · инструментов ${e.tools.length}` }, ts: e.ts });
+        // init шлёт каждый новый процесс — и после пробуждения (resume): строка посреди ленты была бы швом сна;
+        // показываем только у новой сессии, пока агент ещё ничего не ответил
+        if (!hasResult(s)) s.items.push({ id: `i${e.seq}`, kind: 'state', data: { text: `сессия готова · ${e.model} · инструментов ${e.tools.length}` }, ts: e.ts });
         break;
       case 'event:message.assistant': {
         s.printing = null; // полный блок пришёл — призрак сбрасываем

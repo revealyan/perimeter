@@ -510,6 +510,12 @@ export const cmdTranscriptGet = cmdBase.extend({
 });
 
 export const cmdSessionStop = cmdBase.extend({ type: z.literal('cmd:session.stop') });
+/**
+ * Разбудить остывшую сессию заранее (окно открыло её или начали печатать): процесс с resume, без хода — к отправке
+ * он уже готов (initializing → idle). Живую — только «потрогать» (продлить простой). Ответ: data.result —
+ * woken | alive | limit (лимит живых процессов/памяти: проснётся сообщением, как раньше).
+ */
+export const cmdSessionWake = cmdBase.extend({ type: z.literal('cmd:session.wake') });
 
 // ─── Панели: файлы, git, терминал, порты ───────────────────────────────────
 // Корень всех путей — папка сессии из шапки кадра (sessionId); пути в кадрах — относительно корня.
@@ -996,7 +1002,7 @@ export const cmdMcpSharedRemove = cmdBase.extend({ type: z.literal('cmd:mcp.shar
 
 export const CmdSchema = z.discriminatedUnion('type', [
   cmdHello, cmdSessionList, cmdSessionNew, cmdSessionOpen,
-  cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop,
+  cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop, cmdSessionWake,
   cmdSessionSettings, cmdSessionContext, cmdProfileModels, cmdProfileUsage, cmdProfileUpdate,
   cmdProfileAdd, cmdProfileCheck, cmdProfileLoginStart, cmdProfileLoginCode, cmdProfileLoginCancel,
   cmdProfileTokenStart, cmdProfileTokenTake,
@@ -1039,7 +1045,7 @@ export const KNOWN_EVENT_TYPES: readonly string[] = [
 export const KNOWN_CMD_TYPES: readonly string[] = [
   'cmd:hello', 'cmd:session.list', 'cmd:session.new', 'cmd:session.open',
   'cmd:message.send', 'cmd:permission.respond', 'cmd:interrupt', 'cmd:session.fork', 'cmd:transcript.get',
-  'cmd:session.stop', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
+  'cmd:session.stop', 'cmd:session.wake', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
   'cmd:profile.add', 'cmd:profile.check', 'cmd:profile.login.start', 'cmd:profile.login.code', 'cmd:profile.login.cancel',
   'cmd:profile.token.start', 'cmd:profile.token.take',
   'cmd:mcp.list', 'cmd:mcp.add', 'cmd:mcp.remove', 'cmd:mcp.login.start', 'cmd:mcp.catalog.search',

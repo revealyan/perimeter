@@ -1298,6 +1298,13 @@ export class WssServer {
           : empty());
         return;
       }
+      case 'cmd:session.wake': {
+        // окно открыло сессию / начали печатать: остывшую поднимаем заранее, живой продлеваем простой
+        const sid = f.sessionId ?? '';
+        if (!this.manager.get(sid)) { this.sendReply(ws, this.err(f.id, 'SESSION_NOT_FOUND', `нет сессии ${sid}`)); return; }
+        this.sendReply(ws, this.ack(f.id, { result: this.manager.wake(sid) }));
+        return;
+      }
       case 'cmd:session.stop': {
         void this.manager.stop(f.sessionId ?? '').then(
           () => {

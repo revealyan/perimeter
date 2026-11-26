@@ -154,6 +154,26 @@ try {
   const got = await cmd({ type: 'cmd:transcript.get', sessionId: sid });
   const items = ((got['data'] as { items?: Array<{ kind: string; data: { text?: string } }> }).items ?? []).filter((i) => i.kind === 'thinking');
   check('после ресинка размышления на месте (из журнала supervisor\'а)', items.length === 3 && items.every((i) => /думаю над ответом #\d/.test(i.data.text ?? '')), JSON.stringify(items.map((i) => i.data.text)));
+
+  // сон без шва: остывшую будим заранее (окно открыло) — процесс поднимается с историей без хода и сам становится
+  // «готова» (init CLI без ввода не шлёт — по initialize); сообщение идёт в этот же процесс, без второго запуска
+  await cmd({ type: 'cmd:session.stop', sessionId: sid });
+  const reqBefore = gw.requests.length;
+  const mark = frames.length;
+  const t0 = Date.now();
+  const idleAgain = waitFor((f) => f.type === 'event:session.state' && f['sessionId'] === sid && f['state'] === 'idle', 30_000);
+  const wr = ((await cmd({ type: 'cmd:session.wake', sessionId: sid }))['data'] as { result?: string }).result;
+  await idleAgain;
+  const wakeMs = Date.now() - t0;
+  const reqDuringWake = gw.requests.length - reqBefore;
+  const again = ((await cmd({ type: 'cmd:session.wake', sessionId: sid }))['data'] as { result?: string }).result;
+  const t1 = Date.now();
+  await turn(sid, 'после сна');
+  const turnMs = Date.now() - t1;
+  const states = frames.slice(mark).filter((f) => f.type === 'event:session.state' && f['sessionId'] === sid).map((f) => String(f['state']));
+  check('пробуждение заранее: woken → «готова» без хода, потом alive; ход — в том же процессе',
+    wr === 'woken' && again === 'alive' && reqDuringWake === 0 && JSON.stringify(states) === JSON.stringify(['initializing', 'idle', 'working', 'idle']),
+    `${String(wr)}/${String(again)}, готова через ${wakeMs} мс, запросов к API при пробуждении ${reqDuringWake}, ход ${turnMs} мс, состояния ${states.join('→')}`);
 } catch (e) {
   check('прогон', false, String((e as Error).message));
 } finally {

@@ -74,6 +74,7 @@ export function spareClaimFactory(
       setPermissionMode: async (m: string) => { await claim().setPermissionMode(m as PermissionMode); },
       getContextUsage: async (d) => claim().getContextUsage(d ? { detail: d } : undefined) as unknown,
       applyFlagSettings: async (s) => { await claim().applyFlagSettings(s as never); },
+      initializationResult: async () => claim().initializationResult(),
       // остановка сессии (idle-reaping, stop, смена профиля) обязана гасить процесс — иначе он живёт сиротой
       close: async () => {
         if (claimed) claimed.close();

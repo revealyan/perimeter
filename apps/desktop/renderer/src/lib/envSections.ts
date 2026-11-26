@@ -5,7 +5,11 @@ import type { EnvId, ProjectInfo } from '../supervisor';
 import { groupOf, orderAt, type GroupId, type SessionLike } from './sessionGroups';
 
 /** Порядок статусов внутри секции среды («ждут» — наверху, в общей группе). */
-const SECTION_ORDER: GroupId[] = ['working', 'ready', 'fresh', 'cold'];
+/**
+ * Порядок строк: сверху — где идёт ход; остальные (готовы/новые/остыли) — одной кучей по давности. Сон и пробуждение
+ * строку не двигают (владелец 2026-11-26: «шов незаметным»): остывшая отличается только иконкой.
+ */
+const sectionRank = (g: GroupId): number => (g === 'working' ? 0 : 1);
 
 export interface EnvInput<T> {
   env: EnvId;
@@ -75,7 +79,7 @@ export function layoutEnvs<T extends SessionLike>(inputs: Array<EnvInput<T>>, fi
       if (g === 'waiting') waiting.push({ env: inp.env, s });
       else rows.push({ s, group: g });
     }
-    rows.sort((a, b) => SECTION_ORDER.indexOf(a.group) - SECTION_ORDER.indexOf(b.group) || byRecent(a.s, b.s));
+    rows.sort((a, b) => sectionRank(a.group) - sectionRank(b.group) || byRecent(a.s, b.s));
     sections.push({ env: inp.env, rows, children, total: envTotal });
     total += envTotal;
   }

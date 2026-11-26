@@ -32,6 +32,8 @@ export interface EngineOptions {
   onThinking?: (signature: string, text: string) => void;
   /** лимиты подписки (rate_limit_event Claude Code) — supervisor копит их по аккаунту (usage) */
   onRateLimit?: (info: unknown) => void;
+  /** процесс поднялся и готов принять сообщение (initialize отвечен) — без хода, раньше system/init */
+  onReady?: () => void;
 }
 
 class Deferred<T> {
@@ -77,6 +79,11 @@ export class SessionEngine {
       this.query = this.opts.factory(this.queue.iterator(), {
         canUseTool: (toolName, input, o) => this.handleCanUseTool(toolName, input, o?.signal),
       });
+      const q = this.query;
+      if (q.initializationResult && this.opts.onReady) {
+        const onReady = this.opts.onReady;
+        q.initializationResult().then(() => { if (this.running && this.query === q) onReady(); }, () => undefined);
+      }
       for await (const msg of this.query) {
         // ошибка маппинга одного сообщения (новая форма в другой версии CLI) не должна
         // рвать цикл: выход из for-await закрыл бы живой процесс и уронил сессию в dead

@@ -19,7 +19,7 @@ interface PendingImage { name: string; dataUrl: string }
 /** Карточка растёт до стольких строк, дальше — прокрутка внутри. */
 const CARD_MAX_ROWS = 10;
 
-export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoFocus, placeholder: placeholderOverride, onSend, onStop }: {
+export function Composer({ variant, draftKey, tools, disabled, busy, hint, hold, autoFocus, placeholder: placeholderOverride, onSend, onStop, onInput }: {
   variant: ComposerStyle;
   /** ключ черновика (среда + сессия) */
   draftKey: string;
@@ -29,6 +29,10 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoF
   busy: boolean;
   /** подсказка над полем ввода (например, «сессия остыла») */
   hint?: string | undefined;
+  /** отправку пока держим — почему (сессия просыпается, лента догружается); печатать можно */
+  hold?: string | null | undefined;
+  /** человек печатает — окно будит остывшую сессию заранее (троттлинг — у вызывающего) */
+  onInput?: (() => void) | undefined;
   /** фокус в поле сразу (экран новой сессии) */
   autoFocus?: boolean;
   /** свой текст-подсказка в пустом поле */
@@ -159,7 +163,7 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoF
   const [sending, setSending] = useState(false);
   const send = () => {
     const t = text.trim();
-    if ((t === '' && images.length === 0) || disabled || sending) return;
+    if ((t === '' && images.length === 0) || disabled || sending || hold) return;
     const clear = () => {
       textRef.current = ''; // поле могли уже закрыть (новая сессия создана) — при закрытии черновик не должен вернуться
       setText('');
@@ -196,7 +200,8 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoF
     areaRef.current?.focus();
   };
 
-  const canSend = !disabled && !sending && (text.trim() !== '' || images.length > 0);
+  const canSend = !disabled && !sending && !hold && (text.trim() !== '' || images.length > 0);
+  const holdNote = hold ? <span className="composer-hold" role="status">{hold}</span> : null;
   const placeholder = placeholderOverride && !disabled ? placeholderOverride : disabled
     ? 'Нет связи с supervisor…'
     : busy ? 'Дописать по ходу — агент прочитает'
@@ -227,7 +232,7 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoF
       ref={areaRef}
       value={text}
       placeholder={placeholder}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => { setText(e.target.value); onInput?.(); }}
       onKeyDown={onKey}
       onSelect={(e) => { caretRef.current = e.currentTarget.selectionStart; }}
       onPaste={onPaste}
@@ -278,7 +283,8 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoF
             </span>
             <span className="spacer" />
             {stopBtn}
-            <button className="btn primary composer-send-btn" onClick={send} disabled={!canSend} data-tip="Отправить" data-key="Ctrl Enter">
+            {holdNote}
+            <button className="btn primary composer-send-btn" onClick={send} disabled={!canSend} data-tip={hold ?? 'Отправить'} data-key="Ctrl Enter">
               <Icon name="arrowUp" size={14} /> Отправить
             </button>
           </div>
@@ -301,7 +307,8 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, autoF
             <kbd>Enter</kbd> отправить <span className="kh-extra"><kbd>Shift+Enter</kbd> перенос{busy && <> <kbd>Esc</kbd> стоп</>}</span>
           </span>
           {stopBtn}
-          <button className={`composer-send ${canSend ? 'ready' : ''}`} onClick={send} aria-disabled={!canSend} data-tip="Отправить" data-key="Enter" aria-label="Отправить">
+          {holdNote}
+          <button className={`composer-send ${canSend ? 'ready' : ''}`} onClick={send} aria-disabled={!canSend} data-tip={hold ?? 'Отправить'} data-key="Enter" aria-label="Отправить">
             <Icon name="arrowUp" />
           </button>
         </div>
