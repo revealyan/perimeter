@@ -174,7 +174,8 @@ describe('переезд пакетом', () => {
     // git-проект — рядом с чужой папкой
     const app2 = join(t.root, 'app-2');
     expect(readFileSync(join(t.root, 'app', 'чужое.txt'), 'utf8')).toBe('не трогать');
-    expect(readFileSync(join(app2, 'a.txt'), 'utf8')).toBe('1\n2\n');      // правка легла
+    // правка легла (на Windows git с core.autocrlf отдаёт \r\n — сравниваем без окончаний строк)
+    expect(readFileSync(join(app2, 'a.txt'), 'utf8').replace(/\r\n/g, '\n')).toBe('1\n2\n');
     expect(readFileSync(join(app2, '.env'), 'utf8')).toBe('SECRET=1');     // игнорируемое — едет
     expect(existsSync(join(app2, 'new.txt'))).toBe(true);
     expect(existsSync(join(app2, 'node_modules'))).toBe(false);            // тяжёлое — нет
