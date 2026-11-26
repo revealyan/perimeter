@@ -67,10 +67,14 @@ export class AppUpdater {
     return this.state;
   }
 
-  /** Перезапустить и поставить скачанное. */
+  /**
+   * Перезапустить и поставить скачанное — молча (/S) и с перезапуском (--force-run): мастер установщика — только
+   * для первой установки (выбор папки). Владелец 2026-11-26: «визард с установкой пихается в ебало при обновлении» —
+   * было quitAndInstall(false, …), т. е. NSIS с окнами.
+   */
   install() {
     if (this.state.state !== 'ready') return false;
-    this.deps.updater.quitAndInstall(false, true);
+    this.deps.updater.quitAndInstall(true, true);
     return true;
   }
 }

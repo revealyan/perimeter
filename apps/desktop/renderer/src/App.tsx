@@ -5,7 +5,7 @@ import { NewProjectDialog } from './components/NewProjectDialog';
 import { SessionHeader } from './components/SessionHeader';
 import { SettingsDialog } from './components/SettingsDialog';
 import { SyncDialog } from './components/SyncDialog';
-import { TransferDialog, type TransferDone } from './components/TransferDialog';
+import { TransferDialog } from './components/TransferDialog';
 import { Feed } from './components/Feed';
 import { Composer } from './components/Composer';
 import { TaskStrip, showTaskStrip } from './components/TaskStrip';
@@ -24,9 +24,11 @@ import { groupOf } from './lib/sessionGroups';
 import { afterPaint, requestComposerInsert } from './composeBus';
 import { COMPOSER_STYLE_KEY, draftKey, parseComposerStyle, type ComposerStyle } from './lib/composerModel';
 import { localSupBusy } from './lib/localSup';
-import { serverUpdateText, type ServerUpdateEvent } from './lib/updateModel';
+import { serverUpdateText } from './lib/updateModel';
 import { isCold, sendHold } from './lib/wake';
 import { FOREIGN_SCAN_MS, loadSeen, newForeign, saveSeen } from './lib/foreignScan';
+import { notifications } from './notifications';
+import { useUpdate } from './lib/useUpdate';
 import { SessionSearch } from './components/SessionSearch';
 
 const PANEL_KEY = 'perimeter:panel';
@@ -54,7 +56,6 @@ export default function App() {
   const [syncEnv, setSyncEnv] = useState<EnvId | null>(null);
   /** перенос сессии (T-ряд): диалог открыт для этой сессии; done — тост с отменой */
   const [transfer, setTransfer] = useState<{ env: EnvId; sid: string } | null>(null);
-  const [transferDone, setTransferDone] = useState<TransferDone | null>(null);
   const [localSup, setLocalSup] = useState('');
   const [panel, setPanelState] = useState<PanelState>(loadPanel);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -155,6 +156,35 @@ export default function App() {
     document.documentElement.classList.toggle('theme-light', localStorage.getItem('perimeter:theme') === 'light');
   }, []);
 
+  // ошибки команд (раньше — тосты поверх чата) → журнал уведомлений
+  const errKey = enabled.map((e) => `${e}:${clients.get(e).lastError}`).join('|');
+  useEffect(() => {
+    for (const e of enabled) {
+      const c = clients.get(e);
+      if (!c.lastError) continue;
+      notifications.push({ level: 'err', env: e, title: c.lastError });
+      c.dismissError();
+    }
+  }, [errKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // связь: оборвалась (после того как была) / восстановилась — одной записью на среду
+  const connKey = enabled.map((e) => `${e}:${clients.get(e).status}`).join('|');
+  const wasLive = useRef(new Map<EnvId, boolean>());
+  useEffect(() => {
+    for (const e of enabled) {
+      const live = clients.get(e).status === 'live';
+      const was = wasLive.current.get(e);
+      if (was === true && !live) notifications.push({ level: 'warn', env: e, key: `conn:${e}`, title: 'связь оборвалась — переподключаюсь', text: 'сессии на сервере продолжают работать' });
+      else if (was === false && live && notifications.list.find((n) => n.key === `conn:${e}`)?.level === 'warn') notifications.push({ level: 'ok', env: e, key: `conn:${e}`, title: 'связь восстановилась' });
+      if (live || was !== undefined) wasLive.current.set(e, live);
+    }
+  }, [connKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // обновление приложения скачано — в журнал с «перезапустить» (кнопка в строке статуса тоже есть)
+  const appUpd = useUpdate();
+  useEffect(() => {
+    if (appUpd?.state === 'ready') notifications.push({ level: 'ok', key: 'app-update', title: `обновление ${appUpd.version ?? ''} скачано`, text: 'поставится тихо при перезапуске или выходе', action: { label: 'перезапустить', run: () => void window.perimeterIPC?.updateInstall?.() } });
+    else if (appUpd?.state === 'error') notifications.push({ level: 'warn', key: 'app-update', title: 'обновление приложения не проверилось', ...(appUpd.message ? { text: appUpd.message } : {}) });
+  }, [appUpd?.state, appUpd?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // фоновый поиск сессий Claude Code вне Perimeter: при подключении среды и раз в 10 минут; новые — тостом
   const liveKey = enabled.filter((e) => clients.get(e).status === 'live').join(',');
   useEffect(() => {
@@ -167,7 +197,7 @@ export default function App() {
           const { fresh, seen } = newForeign(r.sessions, loadSeen(localStorage, env), first);
           saveSeen(localStorage, env, seen);
           if (stop || fresh.length === 0) continue;
-          setForeignFound((l) => [...l.filter((x) => x.env !== env), { env, count: fresh.length }]);
+          notifications.push({ level: 'info', env, key: `foreign:${env}`, title: `новых сессий Claude Code вне Perimeter — ${fresh.length}`, text: 'запущены Claude Code напрямую; откроются здесь с историей', action: { label: 'показать', run: () => setSearch({ foreign: true }) } });
           if (typeof document !== 'undefined' && !document.hasFocus()) window.perimeterIPC?.notify('perimeter', `«${envLabel(env)}»: новых сессий Claude Code вне Perimeter — ${fresh.length}`);
         } catch { /* supervisor старой версии без поиска — молча */ }
       }
@@ -280,14 +310,11 @@ export default function App() {
   const openChange = (path: string) => { setSelectedFile(path); openTab('changes'); };
   /** Прокрутить ленту к элементу (из панели); на весь экран — сначала свернуть. */
   // автообновление supervisor'а на серверах (main): ход — тостом; готово/не вышло — само скрывается через 12 с
-  const [srvUpd, setSrvUpd] = useState<ServerUpdateEvent[]>([]);
   // поиск сессий (Ctrl+K); foreign — открыть сразу «вне Perimeter» (из уведомления фонового поиска)
   const [search, setSearch] = useState<false | { foreign: boolean }>(false);
-  // фоновый поиск сессий Claude Code вне Perimeter: новые с прошлого раза — тостом (и уведомлением, если окно не в фокусе)
-  const [foreignFound, setForeignFound] = useState<Array<{ env: EnvId; count: number }>>([]);
+
   useEffect(() => window.perimeterIPC?.onServerUpdate?.((e) => {
-    setSrvUpd((l) => [...l.filter((x) => x.connId !== e.connId), e]);
-    if (e.state === 'done' || e.state === 'failed') setTimeout(() => setSrvUpd((l) => l.filter((x) => x !== e)), 12_000);
+    notifications.push({ level: e.state === 'failed' ? 'err' : e.state === 'done' ? 'ok' : 'info', key: `srvupd:${e.connId}`, title: serverUpdateText(e, envLabel(e.connId)) });
   }), []);
   // список задач над полем ввода (как в Desktop): план активной сессии
   const activePlan = active ? extractPlan(active.items) : null;
@@ -338,8 +365,18 @@ export default function App() {
           fromEnv={transfer.env}
           sessionId={transfer.sid}
           onDone={(r) => {
-            setTransferDone(r);
-            setTimeout(() => setTransferDone((cur) => (cur?.dstSid === r.dstSid ? null : cur)), 30_000);
+            const dst = clients.get(r.dstEnv);
+            notifications.push({
+              level: r.untracked > 0 ? 'warn' : 'ok', env: r.srcEnv, key: `transfer:${r.dstSid}`,
+              title: `сессия перенесена → ${envLabel(r.dstEnv)}${dst.sessions.get(r.dstSid) ? ` · «${dst.sessions.get(r.dstSid)!.name}»` : ''}`,
+              ...(r.untracked > 0 ? { text: `новых файлов без git: ${r.untracked} — не переехали` } : {}),
+              action: { label: 'отменить', run: () => {
+                // отмена честна только пока на цели не начали работать (сессия «остывшая» после импорта)
+                const moved = dst.sessions.get(r.dstSid);
+                if (dst.status === 'live' && moved !== undefined && moved.state === 'dead') undoTransfer(clients.get(r.srcEnv), dst, r.srcSid, r.dstSid);
+                else notifications.push({ level: 'warn', title: 'перенос уже не отменить — на новом месте начали работать' });
+              } },
+            });
           }}
           onClose={() => setTransfer(null)}
         />
@@ -387,44 +424,6 @@ export default function App() {
               {!(client.environment === 'local' && localSupBusy(localSup)) && <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>}
             </div>
           )}
-          {foreignFound.map((f, i) => (
-            <div key={`foreign-${f.env}`} className="toast" role="status" style={{ bottom: 56 + (srvUpd.length + i) * 52, top: 'auto' }}>
-              <span>«{envLabel(f.env)}»: нашёл новых сессий Claude Code вне Perimeter — {f.count}</span>
-              <button className="link-btn" onClick={() => { setSearch({ foreign: true }); setForeignFound((l) => l.filter((x) => x.env !== f.env)); }}>показать</button>
-              <button className="toast-x" aria-label="Скрыть" onClick={() => setForeignFound((l) => l.filter((x) => x.env !== f.env))}>×</button>
-            </div>
-          ))}
-          {srvUpd.map((u, i) => (
-            <div key={`srvupd-${u.connId}`} className="toast" role="status" style={{ bottom: 56 + i * 52, top: 'auto' }}>
-              <span className={u.state === 'failed' ? 'warn-text' : u.state === 'done' ? 'ok-text' : undefined}>{serverUpdateText(u, envLabel(u.connId))}</span>
-              <button className="toast-x" aria-label="Скрыть" onClick={() => setSrvUpd((l) => l.filter((x) => x.connId !== u.connId))}>×</button>
-            </div>
-          ))}
-          {enabled.filter((e) => clients.get(e).lastError !== '').map((e, i) => (
-            <div key={e} className="toast" role="alert" style={i > 0 ? { top: 56 + i * 52 } : undefined}>
-              <span>{enabled.length > 1 && <b>{envShort(e)}: </b>}{clients.get(e).lastError}</span>
-              <button className="toast-x" aria-label="Скрыть" onClick={() => clients.get(e).dismissError()}>×</button>
-            </div>
-          ))}
-          {transferDone !== null && (() => {
-            const dst = clients.get(transferDone.dstEnv);
-            const moved = dst.sessions.get(transferDone.dstSid);
-            // отмена честна только пока на цели не начали работать (dead после импорта)
-            const canUndo = dst.status === 'live' && moved !== undefined && moved.state === 'dead';
-            return (
-              <div className="toast" role="status" style={{ top: 56 + enabled.filter((e) => clients.get(e).lastError !== '').length * 52 }}>
-                <span>
-                  Перенесено → <b>{envLabel(transferDone.dstEnv)}</b>{moved !== undefined && <> · «{moved.name}»</>}
-                  {transferDone.untracked > 0 && <span className="warn-text"> · новых файлов без git: {transferDone.untracked} — не переехали</span>}
-                </span>
-                <button className="link-btn" disabled={!canUndo} data-tip={canUndo ? 'Сессия на цели вернётся в архив, эта — в строй' : 'На цели уже работают — отмена сломала бы историю'} onClick={() => {
-                  undoTransfer(clients.get(transferDone.srcEnv), dst, transferDone.srcSid, transferDone.dstSid);
-                  setTransferDone(null);
-                }}>Отменить</button>
-                <button className="toast-x" aria-label="Скрыть" onClick={() => setTransferDone(null)}>×</button>
-              </div>
-            );
-          })()}
           {draft
             ? <NewSession
                 key={`${draft.env}:${draft.projectId ?? ''}`}

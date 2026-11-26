@@ -8,7 +8,7 @@ function fakeUpdater() {
   u.checks = 0;
   u.installed = 0;
   u.checkForUpdates = async () => { u.checks++; };
-  u.quitAndInstall = () => { u.installed++; };
+  u.quitAndInstall = (silent, runAfter) => { u.installed++; u.installArgs = [silent, runAfter]; };
   return u;
 }
 
@@ -49,6 +49,8 @@ describe('обновление приложения', () => {
     expect(a.state.state).toBe('ready');
     expect(a.install()).toBe(true);
     expect(updater.installed).toBe(1);
+    // молча и с перезапуском — без мастера установщика
+    expect(updater.installArgs).toEqual([true, true]);
   });
 
   it('нет новой версии — «последняя»; ошибка сети — понятное состояние, перезапуск недоступен', async () => {
