@@ -317,8 +317,10 @@ function EnvOffline({ env, client, localSup }: { env: EnvId; client: SupervisorC
   );
 }
 
-export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate, onNewProject, onAddConnection, onSync, onTransfer }: {
+export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate, onNewProject, onAddConnection, onSync, onTransfer, onSearchAll }: {
   clients: ClientSet;
+  /** поиск по истории всех сессий (Ctrl+K) */
+  onSearchAll?: () => void;
   /** включённые подключения (VPS…, этот компьютер) */
   envs: EnvId[];
   /** среда выбранной сессии */
@@ -417,7 +419,7 @@ export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate
     <aside className="sidebar">
       <div className="side-head">
         <ProjectFilterMenu projects={projects} filter={effFilter} setFilter={setFilter} total={layout.total} showEnv={showEnv} />
-        <button className={`icon-btn boxed ${searchOpen ? 'on' : ''}`} data-tip="Поиск по сессиям" onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }} aria-label="Поиск по сессиям"><Icon name="search" /></button>
+        <button className={`icon-btn boxed ${searchOpen ? 'on' : ''}`} data-tip="Поиск по сессиям (по тексту — Ctrl K)" onClick={() => { setSearchOpen(!searchOpen); if (searchOpen) setSearch(''); }} aria-label="Поиск по сессиям"><Icon name="search" /></button>
         <button className="icon-btn boxed" data-tip="Новый проект" onClick={() => onNewProject()} aria-label="Новый проект"><Icon name="folderPlus" /></button>
         <button className="icon-btn boxed" data-tip="Новая сессия" data-key="Ctrl N" onClick={() => onCreate()} aria-label="Новая сессия"><Icon name="plus" /></button>
       </div>
@@ -430,6 +432,9 @@ export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Escape') { setSearch(''); setSearchOpen(false); } }}
         />
+      )}
+      {searchOpen && onSearchAll && (
+        <button type="button" className="link-btn side-search-all" onClick={onSearchAll}>искать по тексту во всех сессиях, и вне Perimeter <kbd>Ctrl K</kbd></button>
       )}
 
       <div className="side-scroll">

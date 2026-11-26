@@ -26,6 +26,8 @@ import { COMPOSER_STYLE_KEY, draftKey, parseComposerStyle, type ComposerStyle } 
 import { localSupBusy } from './lib/localSup';
 import { serverUpdateText, type ServerUpdateEvent } from './lib/updateModel';
 import { isCold, sendHold } from './lib/wake';
+import { FOREIGN_SCAN_MS, loadSeen, newForeign, saveSeen } from './lib/foreignScan';
+import { SessionSearch } from './components/SessionSearch';
 
 const PANEL_KEY = 'perimeter:panel';
 
@@ -153,6 +155,28 @@ export default function App() {
     document.documentElement.classList.toggle('theme-light', localStorage.getItem('perimeter:theme') === 'light');
   }, []);
 
+  // фоновый поиск сессий Claude Code вне Perimeter: при подключении среды и раз в 10 минут; новые — тостом
+  const liveKey = enabled.filter((e) => clients.get(e).status === 'live').join(',');
+  useEffect(() => {
+    let stop = false;
+    const scan = async () => {
+      for (const env of liveKey ? liveKey.split(',') : []) {
+        try {
+          const r = await clients.get(env).searchSessions('', true, 500);
+          const first = localStorage.getItem(`perimeter:foreign-seen:${env}`) === null;
+          const { fresh, seen } = newForeign(r.sessions, loadSeen(localStorage, env), first);
+          saveSeen(localStorage, env, seen);
+          if (stop || fresh.length === 0) continue;
+          setForeignFound((l) => [...l.filter((x) => x.env !== env), { env, count: fresh.length }]);
+          if (typeof document !== 'undefined' && !document.hasFocus()) window.perimeterIPC?.notify('perimeter', `«${envLabel(env)}»: новых сессий Claude Code вне Perimeter — ${fresh.length}`);
+        } catch { /* supervisor старой версии без поиска — молча */ }
+      }
+    };
+    void scan();
+    const t = setInterval(() => void scan(), FOREIGN_SCAN_MS);
+    return () => { stop = true; clearInterval(t); };
+  }, [liveKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // «не засыпать» (тумблер в настройках): пока хоть одна сессия работает или ждёт ответа
   const anyBusy = enabled.some((e) => [...clients.get(e).sessions.values()].some((s) => !s.archived && (s.state === 'working' || s.state === 'waiting_permission' || s.state === 'waiting_input' || s.state === 'initializing')));
   useEffect(() => {
@@ -210,6 +234,8 @@ export default function App() {
           if (next) selectSession(next.env, next.sid);
           return;
         }
+        // Ctrl+K — поиск сессий (как /resume в Claude Code)
+        if (e.code === 'KeyK') { e.preventDefault(); setSearch({ foreign: false }); return; }
         // Ctrl+J — к следующей ждущей («Ждут тебя» по всем средам)
         if (e.code === 'KeyJ') { e.preventDefault(); jumpToWaitingRef.current(); return; }
       }
@@ -255,6 +281,10 @@ export default function App() {
   /** Прокрутить ленту к элементу (из панели); на весь экран — сначала свернуть. */
   // автообновление supervisor'а на серверах (main): ход — тостом; готово/не вышло — само скрывается через 12 с
   const [srvUpd, setSrvUpd] = useState<ServerUpdateEvent[]>([]);
+  // поиск сессий (Ctrl+K); foreign — открыть сразу «вне Perimeter» (из уведомления фонового поиска)
+  const [search, setSearch] = useState<false | { foreign: boolean }>(false);
+  // фоновый поиск сессий Claude Code вне Perimeter: новые с прошлого раза — тостом (и уведомлением, если окно не в фокусе)
+  const [foreignFound, setForeignFound] = useState<Array<{ env: EnvId; count: number }>>([]);
   useEffect(() => window.perimeterIPC?.onServerUpdate?.((e) => {
     setSrvUpd((l) => [...l.filter((x) => x.connId !== e.connId), e]);
     if (e.state === 'done' || e.state === 'failed') setTimeout(() => setSrvUpd((l) => l.filter((x) => x !== e)), 12_000);
@@ -297,6 +327,7 @@ export default function App() {
           onAddConnection={() => setShowSettings('add')}
           onSync={setSyncEnv}
           onTransfer={(env, sid) => setTransfer({ env, sid })}
+          onSearchAll={() => setSearch({ foreign: false })}
         />
       )}
       {syncEnv && <SyncDialog client={clients.get(syncEnv)} onClose={() => setSyncEnv(null)} />}
@@ -326,6 +357,7 @@ export default function App() {
           }}
         />
       )}
+      {search !== false && <SessionSearch clients={clients} envs={enabled} foreignFirst={search.foreign} onOpen={(env, sid) => selectSession(env, sid)} onClose={() => setSearch(false)} />}
       {showSettings !== false && <SettingsDialog clients={clients} {...(typeof showSettings === 'string' ? { initial: showSettings } : {})} composerStyle={composerStyle} onComposerStyle={setComposerStyle} onClose={() => setShowSettings(false)} />}
       <div className={`work ${panel.open && !full && panel.dock !== 'floating' ? `with-${panel.dock}` : ''}`} ref={workRef}>
         <main className="center" hidden={full}>
@@ -355,6 +387,13 @@ export default function App() {
               {!(client.environment === 'local' && localSupBusy(localSup)) && <button className="link-btn" onClick={() => client.reconnectNow()}>повторить</button>}
             </div>
           )}
+          {foreignFound.map((f, i) => (
+            <div key={`foreign-${f.env}`} className="toast" role="status" style={{ bottom: 56 + (srvUpd.length + i) * 52, top: 'auto' }}>
+              <span>«{envLabel(f.env)}»: нашёл новых сессий Claude Code вне Perimeter — {f.count}</span>
+              <button className="link-btn" onClick={() => { setSearch({ foreign: true }); setForeignFound((l) => l.filter((x) => x.env !== f.env)); }}>показать</button>
+              <button className="toast-x" aria-label="Скрыть" onClick={() => setForeignFound((l) => l.filter((x) => x.env !== f.env))}>×</button>
+            </div>
+          ))}
           {srvUpd.map((u, i) => (
             <div key={`srvupd-${u.connId}`} className="toast" role="status" style={{ bottom: 56 + i * 52, top: 'auto' }}>
               <span className={u.state === 'failed' ? 'warn-text' : u.state === 'done' ? 'ok-text' : undefined}>{serverUpdateText(u, envLabel(u.connId))}</span>

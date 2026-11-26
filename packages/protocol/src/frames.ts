@@ -552,6 +552,13 @@ export const cmdMigrateImport = cmdBase.extend({ type: z.literal('cmd:migrate.im
 export const cmdMigrateDrop = cmdBase.extend({ type: z.literal('cmd:migrate.drop'), pkg: z.string().uuid() });
 /** «Окружение»: что стоит в этой среде (Claude Code, git, ssh, терминал, сборка, Python, браузер, docker) и ресурсы. */
 export const cmdEnvProbe = cmdBase.extend({ type: z.literal('cmd:env.probe') });
+/**
+ * Поиск сессий как /resume в Claude Code: все транскрипты аккаунтов этого сервера (и вне Perimeter — запущенные CLI).
+ * query — слова (все) в названии/репликах/папке/тексте; foreign — только вне Perimeter. data: sessions.
+ */
+export const cmdSessionsSearch = cmdBase.extend({ type: z.literal('cmd:sessions.search'), query: z.string().max(200).optional(), foreign: z.boolean().optional(), limit: z.number().int().positive().max(500).optional() });
+/** Завести сессию Claude Code вне Perimeter (resume по её id, в папке аккаунта, где транскрипт). data: sessionId. */
+export const cmdSessionsAdopt = cmdBase.extend({ type: z.literal('cmd:sessions.adopt'), account: z.string(), claudeSessionId: z.string().uuid(), name: z.string().max(200).optional() });
 
 // ─── Панели: файлы, git, терминал, порты ───────────────────────────────────
 // Корень всех путей — папка сессии из шапки кадра (sessionId); пути в кадрах — относительно корня.
@@ -1040,7 +1047,7 @@ export const cmdMcpSharedRemove = cmdBase.extend({ type: z.literal('cmd:mcp.shar
 
 export const CmdSchema = z.discriminatedUnion('type', [
   cmdHello, cmdSessionList, cmdSessionNew, cmdSessionOpen,
-  cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop, cmdSessionWake, cmdKeysList, cmdKeysCreate, cmdKeysCheck, cmdMigrateInventory, cmdMigrateExport, cmdMigrateRead, cmdMigrateUpload, cmdMigratePreview, cmdMigrateImport, cmdMigrateDrop, cmdEnvProbe,
+  cmdMessageSend, cmdPermissionRespond, cmdInterrupt, cmdSessionFork, cmdTranscriptGet, cmdSessionStop, cmdSessionWake, cmdKeysList, cmdKeysCreate, cmdKeysCheck, cmdMigrateInventory, cmdMigrateExport, cmdMigrateRead, cmdMigrateUpload, cmdMigratePreview, cmdMigrateImport, cmdMigrateDrop, cmdEnvProbe, cmdSessionsSearch, cmdSessionsAdopt,
   cmdSessionSettings, cmdSessionContext, cmdProfileModels, cmdProfileUsage, cmdProfileUpdate,
   cmdProfileAdd, cmdProfileCheck, cmdProfileLoginStart, cmdProfileLoginCode, cmdProfileLoginCancel,
   cmdProfileTokenStart, cmdProfileTokenTake,
@@ -1083,7 +1090,7 @@ export const KNOWN_EVENT_TYPES: readonly string[] = [
 export const KNOWN_CMD_TYPES: readonly string[] = [
   'cmd:hello', 'cmd:session.list', 'cmd:session.new', 'cmd:session.open',
   'cmd:message.send', 'cmd:permission.respond', 'cmd:interrupt', 'cmd:session.fork', 'cmd:transcript.get',
-  'cmd:session.stop', 'cmd:session.wake', 'cmd:keys.list', 'cmd:keys.create', 'cmd:keys.check', 'cmd:migrate.inventory', 'cmd:migrate.export', 'cmd:migrate.read', 'cmd:migrate.upload', 'cmd:migrate.preview', 'cmd:migrate.import', 'cmd:migrate.drop', 'cmd:env.probe', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
+  'cmd:session.stop', 'cmd:session.wake', 'cmd:keys.list', 'cmd:keys.create', 'cmd:keys.check', 'cmd:migrate.inventory', 'cmd:migrate.export', 'cmd:migrate.read', 'cmd:migrate.upload', 'cmd:migrate.preview', 'cmd:migrate.import', 'cmd:migrate.drop', 'cmd:env.probe', 'cmd:sessions.search', 'cmd:sessions.adopt', 'cmd:session.settings', 'cmd:session.context', 'cmd:profile.models', 'cmd:profile.usage', 'cmd:profile.update',
   'cmd:profile.add', 'cmd:profile.check', 'cmd:profile.login.start', 'cmd:profile.login.code', 'cmd:profile.login.cancel',
   'cmd:profile.token.start', 'cmd:profile.token.take',
   'cmd:mcp.list', 'cmd:mcp.add', 'cmd:mcp.remove', 'cmd:mcp.login.start', 'cmd:mcp.catalog.search',

@@ -43,6 +43,13 @@ export interface FeedItem {
   ts?: number;
 }
 
+/** Найденная сессия (cmd:sessions.search): своя (perimeterId) или вне Perimeter (запущена Claude Code напрямую). */
+export interface FoundSession {
+  claudeSessionId: string; account: string; cwd: string | null; title: string; firstPrompt: string | null;
+  updatedAt: number; bytes: number; messages: number; gitBranch: string | null; entrypoint: string | null;
+  perimeterId?: string; archived?: boolean; match?: string;
+}
+
 /** Переезд: что взять в пакет (галки) — как migrateSelectionSchema протокола. */
 export interface MigrateSelection { accounts: string[]; mcp: string[]; projects: string[]; sessions: 'active' | 'all' | 'none'; thinking: boolean; browser: boolean; gitIdentity: boolean; secrets: boolean }
 /** Манифест пакета (что внутри) — для подписей. */
@@ -925,6 +932,20 @@ export class SupervisorClient {
   async keysCreate(): Promise<ServerKey | null> {
     const r = await this.request({ type: 'cmd:keys.create' }, 30_000);
     return (r.data as { key?: ServerKey } | undefined)?.key ?? null;
+  }
+
+  /** Поиск сессий (как /resume): все транскрипты аккаунтов сервера; foreign — только вне Perimeter. */
+  async searchSessions(query: string, foreign = false, limit?: number): Promise<{ sessions: FoundSession[]; total: number }> {
+    const r = await this.request({ type: 'cmd:sessions.search', ...(query ? { query } : {}), ...(foreign ? { foreign: true } : {}), ...(limit ? { limit } : {}) }, 60_000);
+    return r.data as { sessions: FoundSession[]; total: number };
+  }
+
+  /** Завести сессию Claude Code вне Perimeter (resume по её id); резолвится id сессии Perimeter. */
+  async adoptSession(account: string, claudeSessionId: string, name?: string): Promise<string> {
+    const r = await this.request({ type: 'cmd:sessions.adopt', account, claudeSessionId, ...(name ? { name } : {}) });
+    const sid = (r.data as { sessionId: string }).sessionId;
+    await this.refreshSessions();
+    return sid;
   }
 
   /** «Окружение»: что стоит в этой среде и ресурсы (cmd:env.probe). */

@@ -1456,3 +1456,23 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .env-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .env-detail { font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .env-row .btn { flex: none; }
+
+/* Поиск сессий (Ctrl+K) — как /resume в Claude Code */
+.ss-backdrop { align-items: flex-start; padding-top: 10vh; }
+.modal.ss { width: 760px; padding: 0; display: flex; flex-direction: column; max-height: 76vh; }
+.ss-top { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.ss-top input { flex: 1; background: transparent; border: 0; outline: none; color: var(--fg); font-size: 15px; }
+.ss-seg { flex: none; }
+.ss-note { margin: 10px 14px 0; font-size: var(--fs-sm); }
+.ss-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.ss-row { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.ss-row.on { background: var(--accent-soft); }
+.ss-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ss-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ss-badge { flex: none; font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--warn-soft, rgba(230, 170, 60, .15)); color: var(--warn); }
+.ss-badge.dim { background: transparent; color: var(--dim); }
+.ss-when { flex: none; font-size: var(--fs-sm); }
+.ss-meta { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-snippet { font-size: var(--fs-sm); color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ss-foot { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: var(--fs-sm); }
+.side-search-all { display: flex; align-items: center; gap: 6px; margin: -2px 12px 6px; font-size: var(--fs-sm); text-align: left; }

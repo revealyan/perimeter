@@ -3,8 +3,9 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { checkGithub, createKey, listKeys } from './serverKeys.js';
-import { collectInventory } from './migrate.js';
+import { collectInventory, isInside } from './migrate.js';
 import { probeEnv } from './envProbe.js';
+import { SessionIndex, searchSessions } from './sessionSearch.js';
 import { appendChunk, exportPackage, readChunk, readManifest, runGit, sha256File, type ExportDeps } from './migratePackage.js';
 import { importPackage, previewImport, type ImportDeps, type ImportTarget } from './migrateImport.js';
 import { randomUUID } from 'node:crypto';
@@ -164,6 +165,7 @@ export class WssServer {
   private readonly profiles: ProfileRegistry;
   private readonly thinking: ThinkingStore | undefined;
   private readonly dataPaths: WssOptions['dataPaths'];
+  private readonly sessionIndex = new SessionIndex();
   private readonly mcpSharedFile: string | undefined;
   private readonly projects: ProjectStore | null;
   private readonly pool: PoolLike | null;
@@ -1351,6 +1353,32 @@ export class WssServer {
         );
         return;
       }
+      // ─── поиск сессий (как /resume): все транскрипты аккаунтов, в т. ч. вне Perimeter ───
+      case 'cmd:sessions.search': {
+        const known = new Map(this.manager.list().filter((x) => x.claudeSessionId).map((x) => [x.claudeSessionId!, x]));
+        const all = this.sessionIndex.scan(this.searchDirs()).map((x) => {
+          const k = known.get(x.claudeSessionId);
+          return k ? { ...x, perimeterId: k.id, ...(k.archived ? { archived: true } : {}) } : x;
+        }).filter((x) => !f.foreign || x.perimeterId === undefined);
+        this.sendReply(ws, this.ack(f.id, { sessions: searchSessions(all, f.query ?? '', f.limit ?? 60), total: all.length }));
+        return;
+      }
+      case 'cmd:sessions.adopt': {
+        const known = this.manager.list().find((x) => x.claudeSessionId === f.claudeSessionId);
+        if (known) { this.sendReply(ws, this.ack(f.id, { sessionId: known.id })); return; }
+        const found = this.sessionIndex.scan(this.searchDirs()).find((x) => x.claudeSessionId === f.claudeSessionId && x.account === f.account);
+        if (!found) { this.sendReply(ws, this.err(f.id, 'NOT_FOUND', 'транскрипт не найден — обновите поиск')); return; }
+        const profile = this.profiles.internal(f.account);
+        const cwd = found.cwd ?? homedir();
+        const project = this.projects?.list().find((p) => isInside(cwd, p.path));
+        const info = this.manager.importSession({
+          id: randomUUID(), name: (f.name ?? found.title).slice(0, 120), claudeSessionId: f.claudeSessionId, cwd,
+          ...(profile !== undefined ? { profile } : {}), ...(project ? { projectId: project.id } : {}), lastSeq: -1,
+        }, this.resumeFactory, this.forkFactory);
+        if (!info) { this.sendReply(ws, this.err(f.id, 'IMPORT_FAILED', 'не удалось завести сессию')); return; }
+        this.sendReply(ws, this.ack(f.id, { sessionId: info.id }));
+        return;
+      }
       case 'cmd:env.probe': {
         void probeEnv({ live: { count: this.manager.liveCount(), max: Number.isFinite(this.manager.maxLive) ? this.manager.maxLive : null } }).then(
           (p) => this.sendReply(ws, this.ack(f.id, p)),
@@ -2003,6 +2031,14 @@ export class WssServer {
     const { profile: internal, ...rest } = s;
     const profile = this.profiles.external(internal);
     return { ...rest, ...(profile !== undefined ? { profile } : {}) };
+  }
+
+  /** Папки Claude Code всех аккаунтов (внешние имена) — где искать транскрипты. */
+  private searchDirs(): Array<{ account: string; configDir: string }> {
+    const out = this.profiles.list().map((p) => ({ account: this.profiles.external(p.name) ?? p.name, configDir: profileConfigDir(p) }));
+    const base = this.profiles.baseName();
+    if (base !== undefined && !out.some((x) => x.account === base)) out.push({ account: base, configDir: this.configDirFor(undefined) });
+    return out;
   }
 
   // ─── переезд пакетом ───
