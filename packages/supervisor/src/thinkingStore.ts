@@ -39,6 +39,27 @@ export class ThinkingStore {
     this.size += line.length;
   }
 
+  /** Переезд: запись есть по готовому хэшу подписи (строки журнала другого сервера). */
+  hasKey(key: string): boolean {
+    return this.load().has(key);
+  }
+
+  /** Переезд: дописать запись по хэшу (повтор — no-op). */
+  putKey(key: string, text: string): void {
+    if (key.length !== HASH_LEN || !/^[0-9a-f]+$/.test(key) || !text) return;
+    const idx = this.load();
+    if (idx.has(key)) return;
+    const line = Buffer.from(`${key} ${JSON.stringify(text)}\n`, 'utf8');
+    try {
+      mkdirSync(dirname(this.file), { recursive: true });
+      appendFileSync(this.file, line, { mode: 0o600 });
+    } catch {
+      return;
+    }
+    idx.set(key, { pos: this.size, len: line.length - 1 });
+    this.size += line.length;
+  }
+
   /** Текст по подписи; нет — undefined. */
   get(signature: string): string | undefined {
     if (!signature) return undefined;

@@ -24,6 +24,12 @@ const cmdSamples = [
   { v: PROTOCOL_VERSION, ts, id: 'k2', type: 'cmd:keys.create' },
   { v: PROTOCOL_VERSION, ts, id: 'k3', type: 'cmd:keys.check' },
   { v: PROTOCOL_VERSION, ts, id: 'm1', type: 'cmd:migrate.inventory' },
+  { v: PROTOCOL_VERSION, ts, id: 'm2', type: 'cmd:migrate.export', selection: { accounts: ['zai'], mcp: [], projects: ['p'], sessions: 'active', thinking: true, browser: false, gitIdentity: false, secrets: true } },
+  { v: PROTOCOL_VERSION, ts, id: 'm3', type: 'cmd:migrate.read', pkg: '11111111-1111-4111-8111-111111111111', offset: 0, length: 1048576 },
+  { v: PROTOCOL_VERSION, ts, id: 'm4', type: 'cmd:migrate.upload', offset: 0, data: 'AAAA' },
+  { v: PROTOCOL_VERSION, ts, id: 'm5', type: 'cmd:migrate.preview', pkg: '11111111-1111-4111-8111-111111111111' },
+  { v: PROTOCOL_VERSION, ts, id: 'm6', type: 'cmd:migrate.import', pkg: '11111111-1111-4111-8111-111111111111', chosen: ['acc:zai'] },
+  { v: PROTOCOL_VERSION, ts, id: 'm7', type: 'cmd:migrate.drop', pkg: '11111111-1111-4111-8111-111111111111' },
 ] as const;
 
 const eventSamples = [

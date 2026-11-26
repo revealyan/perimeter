@@ -3,7 +3,7 @@
 import type { Inventory, InventoryProject } from '@perimeter/protocol';
 
 export type PlanGroup = 'accounts' | 'mcp' | 'projects' | 'sessions' | 'data' | 'todo';
-/** copy — поедет; clone/bundle/archive — как поедет проект; exists — уже есть на цели; manual — сделать на цели; skip — не везём */
+/** copy — поедет; bundle/archive — как поедет проект (clone — оставлено для совместимости подписей); exists — уже есть на цели; manual — сделать на цели; skip — не везём */
 export type PlanAction = 'copy' | 'clone' | 'bundle' | 'archive' | 'exists' | 'manual' | 'skip';
 
 export interface PlanItem {
@@ -33,22 +33,21 @@ export function fmtBytes(n: number): string {
   return `${(n / 1024 ** 3).toFixed(1).replace('.', ',')} ГБ`;
 }
 
-/** Как поедет проект: клон с remote, бандл (локальные коммиты/ветки), архив (не git); плюс что сверху. */
-export function projectRoute(p: InventoryProject): { action: 'clone' | 'bundle' | 'archive'; extras: string[] } {
+/**
+ * Как поедет проект пакетом: git — целиком бандлом (вся история, ветки, stash; remote остаётся прежним — цели доступ
+ * к нему для переезда не нужен), сверху правки патчем и файлы вне git архивом; не git — архивом.
+ */
+export function projectRoute(p: InventoryProject): { action: 'bundle' | 'archive'; extras: string[] } {
   const g = p.git;
   if (!g) return { action: 'archive', extras: [] };
   const extras: string[] = [];
-  if (g.dirty > 0) extras.push(`правки в ${g.dirty} файл. — патчем`);
-  if (g.untracked > 0) extras.push(`новых файлов ${g.untracked} — архивом`);
-  if (g.ignored.length > 0) extras.push(`${g.ignored.slice(0, 3).join(', ')}${g.ignored.length > 3 ? '…' : ''} (вне git) — архивом`);
-  if (g.stash > 0) extras.push(`stash ${g.stash} — бандлом`);
-  const local = g.remote === null || (g.unpushed ?? 0) > 0 || g.localBranches.length > 0 || g.stash > 0;
-  if (local) {
-    if (g.unpushed) extras.unshift(`${g.unpushed} коммит. не на remote`);
-    if (g.localBranches.length > 0) extras.unshift(`локальные ветки: ${g.localBranches.slice(0, 3).join(', ')}${g.localBranches.length > 3 ? '…' : ''}`);
-    return { action: 'bundle', extras };
-  }
-  return { action: 'clone', extras };
+  if (g.localBranches.length > 0) extras.push(`ветки: ${g.localBranches.slice(0, 3).join(', ')}${g.localBranches.length > 3 ? '…' : ''}`);
+  if ((g.unpushed ?? 0) > 0) extras.push(`${g.unpushed} коммит. не на remote`);
+  if (g.stash > 0) extras.push(`stash ${g.stash}`);
+  if (g.dirty > 0) extras.push(`правки в ${g.dirty} файл.`);
+  if (g.untracked > 0) extras.push(`новых файлов ${g.untracked}`);
+  if (g.ignored.length > 0) extras.push(`${g.ignored.slice(0, 3).join(', ')}${g.ignored.length > 3 ? '…' : ''} (вне git)`);
+  return { action: 'bundle', extras };
 }
 
 const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -92,12 +91,12 @@ export function migrationPlan(src: Inventory, dst: Inventory): PlanItem[] {
       continue;
     }
     const r = projectRoute(p);
-    const how = r.action === 'clone' ? `клон с ${p.git?.remote ?? ''}` : r.action === 'bundle' ? (p.git?.remote ? `клон с ${p.git.remote} + бандл` : 'бандл git (remote нет)') : 'архивом (не git)';
+    const how = r.action === 'bundle' ? `git целиком${p.git?.remote ? ` · remote ${p.git.remote}` : ' · без remote'}` : 'файлами (не git)';
     const heavy = p.heavy.length ? ` · не везём: ${p.heavy.slice(0, 3).join(', ')}${p.heavy.length > 3 ? '…' : ''} (пересоберётся)` : '';
     items.push({
       id: `prj:${p.name}`, group: 'projects', title: p.name, action: r.action, on: true, bytes: p.bytes,
       detail: `${how}${r.extras.length ? ` · ${r.extras.join(' · ')}` : ''}${heavy}`,
-      ...(r.action !== 'clone' && p.bytes > BIG_PROJECT_BYTES ? { warn: `${fmtBytes(p.bytes)} через приложение — долго; лучше запушить в git` } : {}),
+      ...(p.bytes > BIG_PROJECT_BYTES ? { warn: `${fmtBytes(p.bytes)} через приложение — долго` } : {}),
       ...(p.truncated ? { warn: 'очень много файлов — размер посчитан не полностью' } : {}),
     });
   }

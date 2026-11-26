@@ -4,9 +4,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { checkGithub, createKey, listKeys } from './serverKeys.js';
 import { collectInventory } from './migrate.js';
+import { appendChunk, exportPackage, readChunk, readManifest, runGit, sha256File, type ExportDeps } from './migratePackage.js';
+import { importPackage, previewImport, type ImportDeps, type ImportTarget } from './migrateImport.js';
 import { randomUUID } from 'node:crypto';
-import { cpus, freemem, loadavg, tmpdir, totalmem, uptime } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { cpus, freemem, homedir, loadavg, tmpdir, totalmem, uptime } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { carryTranscript, readTranscriptItems, retargetTranscript, transcriptPath, writeTranscript } from './transcript.js';
 import type { ThinkingStore } from './thinkingStore.js';
@@ -1348,6 +1350,64 @@ export class WssServer {
         );
         return;
       }
+      // ─── переезд пакетом: собрать → отдать кусками / принять кусками → превью → импорт ───
+      case 'cmd:migrate.export': {
+        void exportPackage(f.selection, this.exportDeps()).then(
+          (r) => this.sendReply(ws, this.ack(f.id, { pkg: r.id, bytes: r.bytes, sha256: r.sha256, manifest: r.manifest })),
+          (err) => this.sendReply(ws, this.err(f.id, 'MIGRATE_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      case 'cmd:migrate.read': {
+        const file = this.migrationFile('out', f.pkg);
+        if (!existsSync(file)) { this.sendReply(ws, this.err(f.id, 'NO_PACKAGE', 'пакета нет — соберите заново')); return; }
+        this.sendReply(ws, this.ack(f.id, readChunk(file, f.offset, f.length)));
+        return;
+      }
+      case 'cmd:migrate.upload': {
+        const pkg = f.pkg ?? randomUUID();
+        if (f.pkg === undefined && f.offset !== 0) { this.sendReply(ws, this.err(f.id, 'BAD_CHUNK', 'первый кусок — с нулевого смещения')); return; }
+        try {
+          mkdirSync(join(this.migrationsDir, 'in'), { recursive: true, mode: 0o700 });
+          const bytes = appendChunk(this.migrationFile('in', pkg), f.offset, f.data);
+          this.sendReply(ws, this.ack(f.id, { pkg, bytes }));
+        } catch (err) {
+          this.sendReply(ws, this.err(f.id, 'BAD_CHUNK', String((err as Error).message ?? err)));
+        }
+        return;
+      }
+      case 'cmd:migrate.preview': {
+        const file = this.migrationFile('in', f.pkg);
+        if (!existsSync(file)) { this.sendReply(ws, this.err(f.id, 'NO_PACKAGE', 'пакет не принят — загрузите заново')); return; }
+        void (async () => {
+          if (f.sha256 !== undefined && (await sha256File(file)) !== f.sha256) throw new Error('пакет повреждён при передаче (контрольная сумма не совпала) — загрузите заново');
+          const manifest = await readManifest(file);
+          return { manifest, decisions: previewImport(manifest, await this.importTarget()) };
+        })().then(
+          (r) => this.sendReply(ws, this.ack(f.id, r)),
+          (err) => this.sendReply(ws, this.err(f.id, 'MIGRATE_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      case 'cmd:migrate.import': {
+        const file = this.migrationFile('in', f.pkg);
+        if (!existsSync(file)) { this.sendReply(ws, this.err(f.id, 'NO_PACKAGE', 'пакет не принят — загрузите заново')); return; }
+        void (async () => {
+          const manifest = await readManifest(file);
+          const lines = await importPackage(file, manifest, new Set(f.chosen), await this.importDeps());
+          this.broadcastProfiles();
+          return { lines };
+        })().then(
+          (r) => this.sendReply(ws, this.ack(f.id, r)),
+          (err) => this.sendReply(ws, this.err(f.id, 'MIGRATE_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      case 'cmd:migrate.drop': {
+        for (const side of ['in', 'out'] as const) rmSync(this.migrationFile(side, f.pkg), { force: true });
+        this.sendReply(ws, this.ack(f.id));
+        return;
+      }
       case 'cmd:session.wake': {
         // окно открыло сессию / начали печатать: остывшую поднимаем заранее, живой продлеваем простой
         const sid = f.sessionId ?? '';
@@ -1935,6 +1995,80 @@ export class WssServer {
     const { profile: internal, ...rest } = s;
     const profile = this.profiles.external(internal);
     return { ...rest, ...(profile !== undefined ? { profile } : {}) };
+  }
+
+  // ─── переезд пакетом ───
+  /** ~/.perimeter/migrations: out — собранные здесь, in — принятые сюда */
+  private get migrationsDir(): string {
+    return join(this.dataPaths ? dirname(this.dataPaths.thinkingFile) : join(homedir(), '.perimeter'), 'migrations');
+  }
+
+  private migrationFile(side: 'in' | 'out', pkg: string): string {
+    return join(this.migrationsDir, side, `${pkg}.tgz`);
+  }
+
+  private exportDeps(): ExportDeps {
+    return {
+      profiles: this.profiles.list().map((profile) => ({ profile, external: this.profiles.external(profile.name) ?? profile.name })),
+      projects: this.projects?.list().map((p) => ({ name: p.name, path: p.path, ...(p.profile !== undefined ? { profile: p.profile } : {}), ...(p.model !== undefined ? { model: p.model } : {}) })) ?? [],
+      storageRoot: this.projects?.root() ?? homedir(),
+      sessions: this.manager.list(),
+      externalOf: (pr) => this.profiles.external(pr) ?? pr ?? 'default',
+      mcpShared: this.mcpStore.all(),
+      thinkingFile: this.dataPaths?.thinkingFile ?? '',
+      rbProfileDir: this.dataPaths?.rbProfileDir ?? '',
+      workDir: this.migrationsDir,
+    };
+  }
+
+  /** Что уже есть на этом сервере — для превью импорта. */
+  private async importTarget(): Promise<ImportTarget> {
+    const rb = this.dataPaths?.rbProfileDir ?? '';
+    const gitName = await runGit('git', ['config', '--global', 'user.name']);
+    return {
+      accountExists: (ext) => { const i = this.profiles.internal(ext); return i === undefined || this.profiles.get(i) !== undefined; },
+      mcpExists: (n) => this.mcpStore.get(n) !== undefined,
+      projectByName: (n) => this.projects?.byName(n),
+      storageRoot: this.projects?.root() ?? homedir(),
+      sessionExists: (id) => this.manager.get(id) !== undefined,
+      browserProfileBusy: rb !== '' && existsSync(rb) && readdirSync(rb).length > 0,
+      gitIdentitySet: gitName.code === 0 && gitName.stdout.trim() !== '',
+    };
+  }
+
+  private async importDeps(): Promise<ImportDeps> {
+    const target = await this.importTarget();
+    return {
+      ...target,
+      createAccount: (ext, prof) => {
+        const name = this.profiles.freeName(ext);
+        const configDir = prepareAccountDir(this.accountsDir, `mig-${name}`, profileConfigDir(undefined));
+        const p = this.profiles.create({ ...(prof as Profile), name, configDir });
+        return { internal: p.name, configDir };
+      },
+      accountDir: (ext) => {
+        const i = this.profiles.internal(ext);
+        if (i === undefined) return { internal: undefined, configDir: this.configDirFor(undefined) };
+        const p = this.profiles.get(i);
+        return p ? { internal: i, configDir: profileConfigDir(p) } : undefined;
+      },
+      defaultAccount: () => ({ internal: undefined, configDir: this.configDirFor(undefined) }),
+      // общий MCP — как «Добавить общий»: в запасную копию и в папки аккаунтов (у кого такого имени ещё нет)
+      putMcp: (n, e) => {
+        const st = e as StoredMcp;
+        void this.sharedAdd(n, st.template ?? st.config, this.mcpTargets(), st.keyHost).catch(() => this.mcpStore.put(n, st));
+      },
+      createProject: (p) => {
+        if (!this.projects) throw new Error('хранилище проектов не сконфигурировано');
+        const made = this.projects.create(p);
+        return { id: made.id, path: made.path };
+      },
+      projectIdByName: (n) => this.projects?.byName(n)?.id,
+      importSession: (s) => this.manager.importSession(s, this.resumeFactory, this.forkFactory) !== null,
+      thinkingPut: (k, t) => this.thinking?.putKey(k, t),
+      thinkingHas: (k) => this.thinking?.hasKey(k) ?? false,
+      browserDir: this.dataPaths?.rbProfileDir ?? join(homedir(), '.perimeter', 'rb-profile'),
+    };
   }
 
   /** CLAUDE_CONFIG_DIR профиля (там транскрипты его сессий). */

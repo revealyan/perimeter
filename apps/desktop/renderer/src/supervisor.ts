@@ -43,6 +43,18 @@ export interface FeedItem {
   ts?: number;
 }
 
+/** Переезд: что взять в пакет (галки) — как migrateSelectionSchema протокола. */
+export interface MigrateSelection { accounts: string[]; mcp: string[]; projects: string[]; sessions: 'active' | 'all' | 'none'; thinking: boolean; browser: boolean; gitIdentity: boolean; secrets: boolean }
+/** Манифест пакета (что внутри) — для подписей. */
+export interface MigrateManifest {
+  createdAt: string; source: { host: string; user: string; storageRoot: string }; secretsIncluded: boolean;
+  accounts: Array<{ name: string; kind: string; needsLogin: boolean; secretIncluded: boolean }>; mcp: string[];
+  projects: Array<{ name: string; route: string }>; sessions: Array<{ id: string; name: string; account: string; project: string | null; archived: boolean }>;
+  thinking: boolean; browser: boolean;
+}
+/** Решение превью импорта на цели. */
+export interface MigrateDecision { id: string; group: 'accounts' | 'mcp' | 'projects' | 'sessions' | 'data'; title: string; action: 'add' | 'exists' | 'rename' | 'login' | 'nokey' | 'skip'; detail: string; on: boolean }
+
 /** Открытый SSH-ключ пользователя службы (cmd:keys.list). */
 export interface ServerKey { file: string; type: string; comment: string; fingerprint: string; publicKey: string; hasPrivate: boolean; github: boolean }
 /** Итог проверки входа в GitHub с сервера. */
@@ -919,6 +931,38 @@ export class SupervisorClient {
   async migrateInventory(): Promise<Inventory> {
     const r = await this.request({ type: 'cmd:migrate.inventory' }, 120_000);
     return r.data as Inventory;
+  }
+
+  // ─── переезд пакетом (cmd:migrate.*) ───
+  async migrateExport(selection: MigrateSelection): Promise<{ pkg: string; bytes: number; sha256: string; manifest: MigrateManifest }> {
+    const r = await this.request({ type: 'cmd:migrate.export', selection }, 30 * 60_000);
+    return r.data as { pkg: string; bytes: number; sha256: string; manifest: MigrateManifest };
+  }
+
+  async migrateRead(pkg: string, offset: number, length: number): Promise<{ data: string; eof: boolean; bytes: number }> {
+    const r = await this.request({ type: 'cmd:migrate.read', pkg, offset, length }, 120_000);
+    return r.data as { data: string; eof: boolean; bytes: number };
+  }
+
+  async migrateUpload(pkg: string | undefined, offset: number, data: string): Promise<{ pkg: string; bytes: number }> {
+    const r = await this.request({ type: 'cmd:migrate.upload', ...(pkg !== undefined ? { pkg } : {}), offset, data }, 120_000);
+    return r.data as { pkg: string; bytes: number };
+  }
+
+  async migratePreview(pkg: string, sha256?: string): Promise<{ manifest: MigrateManifest; decisions: MigrateDecision[] }> {
+    const r = await this.request({ type: 'cmd:migrate.preview', pkg, ...(sha256 !== undefined ? { sha256 } : {}) }, 5 * 60_000);
+    return r.data as { manifest: MigrateManifest; decisions: MigrateDecision[] };
+  }
+
+  async migrateImport(pkg: string, chosen: string[]): Promise<Array<{ id: string; ok: boolean; text: string }>> {
+    const r = await this.request({ type: 'cmd:migrate.import', pkg, chosen }, 60 * 60_000);
+    // аккаунты/проекты/сессии на сервере поменялись — подтянуть
+    void this.refreshSessions();
+    return ((r.data as { lines?: Array<{ id: string; ok: boolean; text: string }> }).lines) ?? [];
+  }
+
+  migrateDrop(pkg: string): void {
+    void this.request({ type: 'cmd:migrate.drop', pkg }).catch(() => undefined);
   }
 
   /** Вход в GitHub с сервера (ssh -T git@github.com под пользователем службы). */

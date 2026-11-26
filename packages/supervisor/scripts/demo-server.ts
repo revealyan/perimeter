@@ -399,6 +399,8 @@ process.env['FAKE_SETUP_AUTO'] ??= '1';
 const manager = new DemoSessionManager(0);
 const server = new WssServer(manager, {
   port, host: '127.0.0.1', profiles, projects, git: demoGit,
+  // данные стенда (журнал, переезд) — во временной папке стенда, не в настоящем ~/.perimeter
+  dataPaths: { thinkingFile: join(root, 'thinking.log'), rbProfileDir: join(root, 'rb-profile') },
   sessionFactory: (sess, id) => scriptedFactory(sess, id),
   modelsFetcher: async (name) => { await sleep(400); return { models: name === 'zai' ? demoGlm : demoModels, from: 'provider' as const }; },
   // лимиты стенда: z.ai — квота в кредитах, подписка — окна 5 часов и неделя (как из ответов API)

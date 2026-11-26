@@ -14,12 +14,10 @@ const inv = (o: Partial<Inventory> = {}): Inventory => ({
 const acc = (name: string, kind: AccountKind, baseUrl?: string): InventoryAccount => ({ name, kind, ...(baseUrl ? { baseUrl } : {}), hasSecret: true, ownConfigDir: true, settings: false, claudeMd: false, mcpServers: [], skills: 0, commands: 0, agents: 0, plugins: 0, transcripts: { files: 0, bytes: 0 } });
 
 describe('план переезда', () => {
-  it('проект: чистый запушенный — клон; локальные коммиты/ветки/stash — бандл; не git — архив; правки и .env — сверху', () => {
-    expect(projectRoute(proj({ git: git() }))).toEqual({ action: 'clone', extras: [] });
-    expect(projectRoute(proj({ git: git({ dirty: 2, ignored: ['.env'] }) }))).toEqual({ action: 'clone', extras: ['правки в 2 файл. — патчем', '.env (вне git) — архивом'] });
-    expect(projectRoute(proj({ git: git({ unpushed: 3 }) })).action).toBe('bundle');
-    expect(projectRoute(proj({ git: git({ localBranches: ['perimeter/w-1'] }) })).extras[0]).toBe('локальные ветки: perimeter/w-1');
-    expect(projectRoute(proj({ git: git({ remote: null }) })).action).toBe('bundle');
+  it('проект: git — целиком бандлом (ветки/stash/правки/вне git — пометками); не git — архив', () => {
+    expect(projectRoute(proj({ git: git() }))).toEqual({ action: 'bundle', extras: [] });
+    expect(projectRoute(proj({ git: git({ dirty: 2, ignored: ['.env'] }) }))).toEqual({ action: 'bundle', extras: ['правки в 2 файл.', '.env (вне git)'] });
+    expect(projectRoute(proj({ git: git({ unpushed: 3, localBranches: ['perimeter/w-1'], stash: 1 }) })).extras).toEqual(['ветки: perimeter/w-1', '3 коммит. не на remote', 'stash 1']);
     expect(projectRoute(proj({}))).toEqual({ action: 'archive', extras: [] });
   });
 
@@ -42,7 +40,7 @@ describe('план переезда', () => {
       inv({ projects: [proj({ name: 'here', path: '/srv/here', git: git() })], mcpShared: ['figma'] }),
     );
     const by = (id: string) => plan.find((i) => i.id === id)!;
-    expect(by('prj:perimeter')).toMatchObject({ action: 'clone', on: true });
+    expect(by('prj:perimeter')).toMatchObject({ action: 'bundle', on: true });
     expect(by('prj:perimeter').detail).toContain('не везём: node_modules');
     expect(by('prj:notes')).toMatchObject({ action: 'archive', on: true });
     expect(by('prj:notes').warn).toMatch(/долго/);

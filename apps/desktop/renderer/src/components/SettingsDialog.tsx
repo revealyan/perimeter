@@ -349,7 +349,7 @@ export function SettingsDialog({ clients, initial, composerStyle, onComposerStyl
               {tab === 'mcp' && <McpSettings client={clients.get(conn.id)} />}
               {tab === 'projects' && <ProjectsSettings clients={clients} envs={[conn.id]} initialEnv={conn.id} />}
               {tab === 'keys' && <ServerKeys key={`keys-${conn.id}`} client={clients.get(conn.id)} local={conn.kind === 'local'} />}
-              {tab === 'migrate' && <MigrateTab key={`mig-${conn.id}`} clients={clients} conns={list} target={conn.id} />}
+              {tab === 'migrate' && <MigrateTab key={`mig-${conn.id}`} clients={clients} conns={list} here={conn.id} />}
             </>
           )}
           {page.kind === 'conn' && !conn && <p className="dim">Подключение «{envLabel(page.id)}» удалено.</p>}
