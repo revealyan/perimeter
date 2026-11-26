@@ -1,6 +1,6 @@
 {
   "name": "@perimeter/desktop",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "private": true,
   "main": "main/index.mjs",
