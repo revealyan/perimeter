@@ -1,7 +1,7 @@
 // Клиент supervisor'а в рендерере: WSS, реконнект с догоном по lastSeq,
 // дедупликация по seq, живые карточки разрешений, запросы с ответом (ack/err по id).
 
-import { PROTOCOL_VERSION, parseFrame, type CustomModel, type EffortLevel, type Event, type ModelInfoFrame, type StorageInfoFrame, type UsageInfo, type Inventory } from '@perimeter/protocol';
+import { PROTOCOL_VERSION, parseFrame, type CustomModel, type EffortLevel, type Event, type ModelInfoFrame, type StorageInfoFrame, type UsageInfo, type Inventory, type EnvProbe } from '@perimeter/protocol';
 export type { UsageInfo, UsageWindow } from '@perimeter/protocol';
 import {
   parseFsList, parseFsRead, parseGitStatus, parseNetPorts, parseTermInfo, parseTermList,
@@ -925,6 +925,12 @@ export class SupervisorClient {
   async keysCreate(): Promise<ServerKey | null> {
     const r = await this.request({ type: 'cmd:keys.create' }, 30_000);
     return (r.data as { key?: ServerKey } | undefined)?.key ?? null;
+  }
+
+  /** «Окружение»: что стоит в этой среде и ресурсы (cmd:env.probe). */
+  async envProbe(): Promise<EnvProbe> {
+    const r = await this.request({ type: 'cmd:env.probe' }, 60_000);
+    return r.data as EnvProbe;
   }
 
   /** Переезд: опись этого сервера (что хранится, сколько, состояние git; секреты — флагом). */

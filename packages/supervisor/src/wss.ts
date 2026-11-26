@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { checkGithub, createKey, listKeys } from './serverKeys.js';
 import { collectInventory } from './migrate.js';
+import { probeEnv } from './envProbe.js';
 import { appendChunk, exportPackage, readChunk, readManifest, runGit, sha256File, type ExportDeps } from './migratePackage.js';
 import { importPackage, previewImport, type ImportDeps, type ImportTarget } from './migrateImport.js';
 import { randomUUID } from 'node:crypto';
@@ -1347,6 +1348,13 @@ export class WssServer {
         }).then(
           (inv) => this.sendReply(ws, this.ack(f.id, inv)),
           (err) => this.sendReply(ws, this.err(f.id, 'INVENTORY_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      case 'cmd:env.probe': {
+        void probeEnv({ live: { count: this.manager.liveCount(), max: Number.isFinite(this.manager.maxLive) ? this.manager.maxLive : null } }).then(
+          (p) => this.sendReply(ws, this.ack(f.id, p)),
+          (err) => this.sendReply(ws, this.err(f.id, 'PROBE_FAILED', String((err as Error).message ?? err))),
         );
         return;
       }

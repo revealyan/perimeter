@@ -13,6 +13,7 @@ import { ProjectsSettings } from './ProjectsSettings';
 import { ServerInstall } from './ServerInstall';
 import { ServerKeys } from './ServerKeys';
 import { MigrateTab } from './MigrateTab';
+import { EnvPage } from './EnvPage';
 import { COMPOSER_STYLE_HINT, COMPOSER_STYLE_LABEL, type ComposerStyle } from '../lib/composerModel';
 import { updateText } from '../lib/updateModel';
 import { useUpdate } from '../lib/useUpdate';
@@ -24,7 +25,7 @@ export function ipcError(e: unknown): string {
   return i >= 0 ? t.slice(i + 7) : t;
 }
 
-type Page = { kind: 'general' } | { kind: 'conn'; id: EnvId } | { kind: 'add' };
+type Page = { kind: 'general' } | { kind: 'env' } | { kind: 'conn'; id: EnvId } | { kind: 'add' };
 type ConnTab = 'link' | 'accounts' | 'mcp' | 'projects' | 'keys' | 'migrate';
 
 /** Версия приложения и обновление: проверить сейчас, перезапустить, когда скачано. */
@@ -299,6 +300,7 @@ export function SettingsDialog({ clients, initial, composerStyle, onComposerStyl
         <nav className="st-nav">
           <div className="modal-title">Настройки</div>
           <button className={`st-nav-item ${page.kind === 'general' ? 'on' : ''}`} onClick={() => setPage({ kind: 'general' })}><Icon name="settings" /> Общие</button>
+          <button className={`st-nav-item ${page.kind === 'env' ? 'on' : ''}`} onClick={() => setPage({ kind: 'env' })}><Icon name="gauge" /> Окружение</button>
           <div className="st-nav-title">Подключения</div>
           {list.map((c) => {
             const cl = clients.get(c.id);
@@ -314,6 +316,7 @@ export function SettingsDialog({ clients, initial, composerStyle, onComposerStyl
         </nav>
         <div className="st-body">
           {page.kind === 'general' && <General composerStyle={composerStyle} onComposerStyle={onComposerStyle} />}
+          {page.kind === 'env' && <EnvPage clients={clients} conns={list} />}
           {page.kind === 'add' && (
             <>
               <h3 className="st-h">Новое подключение</h3>

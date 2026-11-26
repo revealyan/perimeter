@@ -544,6 +544,11 @@ export class SessionManager {
     return 'woken';
   }
 
+  /** Лимит живых процессов (Infinity — без лимита). */
+  get maxLive(): number {
+    return this.live.maxLive;
+  }
+
   /** Сколько процессов claude живо (всё, кроме остывших и упавших). */
   liveCount(): number {
     let n = 0;

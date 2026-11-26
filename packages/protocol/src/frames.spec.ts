@@ -30,6 +30,7 @@ const cmdSamples = [
   { v: PROTOCOL_VERSION, ts, id: 'm5', type: 'cmd:migrate.preview', pkg: '11111111-1111-4111-8111-111111111111' },
   { v: PROTOCOL_VERSION, ts, id: 'm6', type: 'cmd:migrate.import', pkg: '11111111-1111-4111-8111-111111111111', chosen: ['acc:zai'] },
   { v: PROTOCOL_VERSION, ts, id: 'm7', type: 'cmd:migrate.drop', pkg: '11111111-1111-4111-8111-111111111111' },
+  { v: PROTOCOL_VERSION, ts, id: 'e1', type: 'cmd:env.probe' },
 ] as const;
 
 const eventSamples = [
