@@ -23,6 +23,7 @@ const cmdSamples = [
   { v: PROTOCOL_VERSION, ts, id: 'k1', type: 'cmd:keys.list' },
   { v: PROTOCOL_VERSION, ts, id: 'k2', type: 'cmd:keys.create' },
   { v: PROTOCOL_VERSION, ts, id: 'k3', type: 'cmd:keys.check' },
+  { v: PROTOCOL_VERSION, ts, id: 'm1', type: 'cmd:migrate.inventory' },
 ] as const;
 
 const eventSamples = [

@@ -3,6 +3,7 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { checkGithub, createKey, listKeys } from './serverKeys.js';
+import { collectInventory } from './migrate.js';
 import { randomUUID } from 'node:crypto';
 import { cpus, freemem, loadavg, tmpdir, totalmem, uptime } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -73,6 +74,8 @@ export interface WssOptions {
   /** сжатие кадров permessage-deflate (по умолчанию вкл.; тестам можно выключить) */
   compress?: boolean;
   /** аккаунты из UI: папка аккаунтов, подмены входа и проверки ключа (тесты) */
+  /** переезд: где лежат данные, которых нет в реестрах (опись cmd:migrate.inventory) */
+  dataPaths?: { thinkingFile: string; rbProfileDir: string };
   accounts?: {
     root?: string;
     login?: Partial<Omit<LoginDeps, 'emit'>>;
@@ -157,6 +160,8 @@ export class WssServer {
   private readonly forkFactory: WssOptions['forkFactory'];
   private readonly profiles: ProfileRegistry;
   private readonly thinking: ThinkingStore | undefined;
+  private readonly dataPaths: WssOptions['dataPaths'];
+  private readonly mcpSharedFile: string | undefined;
   private readonly projects: ProjectStore | null;
   private readonly pool: PoolLike | null;
   private readonly modelsFetcher: WssOptions['modelsFetcher'];
@@ -206,6 +211,8 @@ export class WssServer {
     this.forkFactory = opts.forkFactory;
     this.profiles = opts.profiles ?? new ProfileRegistry([]);
     this.thinking = opts.thinking;
+    this.dataPaths = opts.dataPaths;
+    this.mcpSharedFile = opts.accounts?.mcpSharedFile;
     this.projects = opts.projects ?? null;
     this.pool = opts.pool ?? null;
     this.modelsFetcher = opts.modelsFetcher;
@@ -1318,6 +1325,26 @@ export class WssServer {
         void checkGithub().then(
           (r) => this.sendReply(ws, this.ack(f.id, r)),
           (err) => this.sendReply(ws, this.err(f.id, 'KEYS_FAILED', String((err as Error).message ?? err))),
+        );
+        return;
+      }
+      // ─── переезд: опись сервера (только чтение, секреты — флагом) ───
+      case 'cmd:migrate.inventory': {
+        const paths = this.dataPaths;
+        void collectInventory({
+          profiles: this.profiles.list().map((profile) => ({ profile, external: this.profiles.external(profile.name) ?? profile.name })),
+          projects: this.projects?.list().map((p) => ({ name: p.name, path: p.path })) ?? [],
+          storageRoot: this.projects?.root() ?? '',
+          sessions: this.manager.list(),
+          hasTranscript: (s) => s.claudeSessionId !== undefined && s.cwd !== undefined && existsSync(transcriptPath(this.configDirFor(s.profile), s.cwd, s.claudeSessionId)),
+          externalOf: (pr) => this.profiles.external(pr) ?? pr ?? 'по умолчанию',
+          thinkingFile: paths?.thinkingFile ?? '',
+          mcpSharedFile: this.mcpSharedFile,
+          rbProfileDir: paths?.rbProfileDir ?? '',
+          version: SUPERVISOR_VERSION,
+        }).then(
+          (inv) => this.sendReply(ws, this.ack(f.id, inv)),
+          (err) => this.sendReply(ws, this.err(f.id, 'INVENTORY_FAILED', String((err as Error).message ?? err))),
         );
         return;
       }

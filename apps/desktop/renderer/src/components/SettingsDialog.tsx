@@ -12,6 +12,7 @@ import { McpSettings } from './McpSettings';
 import { ProjectsSettings } from './ProjectsSettings';
 import { ServerInstall } from './ServerInstall';
 import { ServerKeys } from './ServerKeys';
+import { MigrateTab } from './MigrateTab';
 import { COMPOSER_STYLE_HINT, COMPOSER_STYLE_LABEL, type ComposerStyle } from '../lib/composerModel';
 import { updateText } from '../lib/updateModel';
 import { useUpdate } from '../lib/useUpdate';
@@ -24,7 +25,7 @@ export function ipcError(e: unknown): string {
 }
 
 type Page = { kind: 'general' } | { kind: 'conn'; id: EnvId } | { kind: 'add' };
-type ConnTab = 'link' | 'accounts' | 'mcp' | 'projects' | 'keys';
+type ConnTab = 'link' | 'accounts' | 'mcp' | 'projects' | 'keys' | 'migrate';
 
 /** Версия приложения и обновление: проверить сейчас, перезапустить, когда скачано. */
 function UpdateRow() {
@@ -332,7 +333,7 @@ export function SettingsDialog({ clients, initial, composerStyle, onComposerStyl
                 )}
               </h3>
               <div className="seg env-seg st-tabs" role="tablist">
-                {([['link', 'Подключение'], ['accounts', 'Аккаунты и модели'], ['mcp', 'MCP'], ['projects', 'Проекты'], ['keys', conn.kind === 'vps' ? 'С сервера' : 'Ключи']] as const).map(([id, label]) => (
+                {([['link', 'Подключение'], ['accounts', 'Аккаунты и модели'], ['mcp', 'MCP'], ['projects', 'Проекты'], ['keys', conn.kind === 'vps' ? 'С сервера' : 'Ключи'], ['migrate', 'Переезд']] as const).map(([id, label]) => (
                   <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{label}</button>
                 ))}
               </div>
@@ -348,6 +349,7 @@ export function SettingsDialog({ clients, initial, composerStyle, onComposerStyl
               {tab === 'mcp' && <McpSettings client={clients.get(conn.id)} />}
               {tab === 'projects' && <ProjectsSettings clients={clients} envs={[conn.id]} initialEnv={conn.id} />}
               {tab === 'keys' && <ServerKeys key={`keys-${conn.id}`} client={clients.get(conn.id)} local={conn.kind === 'local'} />}
+              {tab === 'migrate' && <MigrateTab key={`mig-${conn.id}`} clients={clients} conns={list} target={conn.id} />}
             </>
           )}
           {page.kind === 'conn' && !conn && <p className="dim">Подключение «{envLabel(page.id)}» удалено.</p>}

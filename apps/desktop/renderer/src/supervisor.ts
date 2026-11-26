@@ -1,7 +1,7 @@
 // Клиент supervisor'а в рендерере: WSS, реконнект с догоном по lastSeq,
 // дедупликация по seq, живые карточки разрешений, запросы с ответом (ack/err по id).
 
-import { PROTOCOL_VERSION, parseFrame, type CustomModel, type EffortLevel, type Event, type ModelInfoFrame, type StorageInfoFrame, type UsageInfo } from '@perimeter/protocol';
+import { PROTOCOL_VERSION, parseFrame, type CustomModel, type EffortLevel, type Event, type ModelInfoFrame, type StorageInfoFrame, type UsageInfo, type Inventory } from '@perimeter/protocol';
 export type { UsageInfo, UsageWindow } from '@perimeter/protocol';
 import {
   parseFsList, parseFsRead, parseGitStatus, parseNetPorts, parseTermInfo, parseTermList,
@@ -913,6 +913,12 @@ export class SupervisorClient {
   async keysCreate(): Promise<ServerKey | null> {
     const r = await this.request({ type: 'cmd:keys.create' }, 30_000);
     return (r.data as { key?: ServerKey } | undefined)?.key ?? null;
+  }
+
+  /** Переезд: опись этого сервера (что хранится, сколько, состояние git; секреты — флагом). */
+  async migrateInventory(): Promise<Inventory> {
+    const r = await this.request({ type: 'cmd:migrate.inventory' }, 120_000);
+    return r.data as Inventory;
   }
 
   /** Вход в GitHub с сервера (ssh -T git@github.com под пользователем службы). */

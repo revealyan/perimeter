@@ -204,6 +204,7 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
     profiles,
     projects,
     accounts: { root: accountsRoot(profilesFile), mcpSharedFile: join(dirname(profilesFile), 'mcp-shared.json') },
+    dataPaths: { thinkingFile: join(dirname(stateFile), 'thinking.log'), rbProfileDir: rbProfile },
     ...(pool ? { pool } : {}),
     sessionFactory: (sess, id) => factoryFor(sess, id),
     resumeFactory,

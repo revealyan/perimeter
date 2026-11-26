@@ -1408,3 +1408,25 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .activity-dots span:nth-child(3) { animation-delay: .4s; }
 @keyframes activity-blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .activity-dots span { animation: none; opacity: .7; } }
+
+/* «Переезд»: план переноса с другого сервера */
+.migrate { display: flex; flex-direction: column; gap: 12px; }
+.migrate-src { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.migrate-src .link-btn { display: inline-flex; align-items: center; gap: 4px; }
+.migrate-servers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: var(--fs-sm); margin: 0; }
+.migrate-group { display: flex; flex-direction: column; gap: 6px; }
+.migrate-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.migrate-item { display: flex; align-items: flex-start; gap: 10px; background: var(--surface); border-radius: 8px; padding: 8px 12px; }
+.migrate-item input { margin-top: 3px; }
+.migrate-ico { width: 13px; margin-top: 2px; color: var(--dim); }
+.migrate-item.m-ok .migrate-ico { color: var(--ok); }
+.migrate-item.m-todo .migrate-ico { color: var(--warn); }
+.migrate-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.migrate-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.migrate-detail { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.migrate-badge { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); }
+.migrate-badge.m-ok { background: transparent; color: var(--ok); }
+.migrate-badge.m-todo { background: transparent; color: var(--warn); }
+.migrate-badge.m-dim { background: transparent; color: var(--dim); }
+.migrate-item.m-dim b { color: var(--dim); }
+.migrate-actions { display: flex; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
