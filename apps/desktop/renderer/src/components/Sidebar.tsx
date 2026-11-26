@@ -7,6 +7,7 @@ import { envLabel, envShort, isRemote, profileLabel } from '../supervisor';
 import { LOCAL, connections } from '../connections';
 import { groupOf, waitingInfo, type GroupId } from '../lib/sessionGroups';
 import { activityText } from '../lib/activity';
+import { loginNeeded } from '../lib/loginNeeded';
 import { layoutEnvs, mergeProjects, projectGroups } from '../lib/envSections';
 import { lastAction } from '../lib/feedModel';
 import { STATE_LABEL, ago } from './labels';
@@ -317,10 +318,12 @@ function EnvOffline({ env, client, localSup }: { env: EnvId; client: SupervisorC
   );
 }
 
-export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate, onNewProject, onAddConnection, onSync, onTransfer, onSearchAll }: {
+export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate, onNewProject, onAddConnection, onSync, onTransfer, onSearchAll, onLogin }: {
   clients: ClientSet;
   /** поиск по истории всех сессий (Ctrl+K) */
   onSearchAll?: () => void;
+  /** войти в аккаунт среды (свой компьютер без рабочего аккаунта) */
+  onLogin?: (env: EnvId, profile: string) => void;
   /** включённые подключения (VPS…, этот компьютер) */
   envs: EnvId[];
   /** среда выбранной сессии */
@@ -464,6 +467,16 @@ export function Sidebar({ clients, envs, activeEnv, localSup, onSelect, onCreate
                 onNewProject={() => onNewProject(env)}
               />
               {!live && <EnvOffline env={env} client={client} localSup={localSup ?? ''} />}
+              {live && !isRemote(env) && onLogin && (() => {
+                const need = loginNeeded(client.profiles);
+                return need && (
+                  <div className="login-card" role="status">
+                    <div><b>Claude Code здесь не вошёл</b></div>
+                    <div className="dim">Вход Claude Code Desktop хранится отдельно — войдите один раз через claude.ai, заодно войдёт и <span className="mono">claude</span> в терминале.</div>
+                    <button className="btn primary sm" onClick={() => onLogin(env, need.name)}>Войти через claude.ai</button>
+                  </div>
+                );
+              })()}
               {!isCollapsed && (
                 <div className={`env-rows ${live ? '' : 'off'} ${dropEnv === env ? 'drop' : ''}`} {...dropProps(env)}>
                   {nSync > 0 && live && (

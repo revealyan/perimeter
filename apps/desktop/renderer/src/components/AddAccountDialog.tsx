@@ -44,6 +44,8 @@ export function SubscriptionLogin({ client, profile, mcp, onDone, setBusy, setDo
   const seen = useRef(new Map<string, LoginEvent>());
   const current = useRef<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // свой компьютер: страницу входа открыл сам Claude Code в обычном браузере — вкладки и кода нет, вход завершится сам
+  const [own, setOwn] = useState(false);
   // страница входа дольше 10 с на проверке Cloudflare («Just a moment…») — предложить токен или код
   const [cfSince, setCfSince] = useState<number | null>(null);
   const [cfStuck, setCfStuck] = useState(false);
@@ -75,6 +77,7 @@ export function SubscriptionLogin({ client, profile, mcp, onDone, setBusy, setDo
         if (!on) { client.loginCancel(r.loginId); return; }
         current.current = r.loginId;
         setLoginId(r.loginId);
+        setOwn('ownBrowser' in r && r.ownBrowser === true);
         const early = seen.current.get(r.loginId);
         setEv(early ?? { loginId: r.loginId, state: 'waiting', ...(r.rbId ? { rbId: r.rbId } : {}), ...(r.url ? { url: r.url } : {}) });
       },
@@ -145,6 +148,36 @@ export function SubscriptionLogin({ client, profile, mcp, onDone, setBusy, setDo
         </div>
         <div className="modal-actions">
           <button className="btn primary" disabled={saving} onClick={() => void finish()}>{profile ? 'Готово' : 'Добавить аккаунт'}</button>
+        </div>
+      </>
+    );
+  }
+
+  if (own && !mcp) {
+    return (
+      <>
+        <div className="aa-fallback">
+          <div className="aa-banner" role="status">Открыли страницу входа в вашем браузере: войдите на claude.ai (если ещё не вошли) и нажмите «Разрешить» — вход здесь завершится сам. Это вход Claude Code этого компьютера — заодно войдёт и <span className="mono">claude</span> в терминале.</div>
+          <div className="aa-step"><span className="aa-num">?</span><span>Браузер не открылся</span><span className="spacer" /><button className="btn sm" disabled={!ev?.url} onClick={() => ev?.url && openExternal(ev.url)}><Icon name="externalLink" size={12} /> Открыть самому</button></div>
+          <details className="aa-own-code">
+            <summary className="dim">Страница показала код — вставить вручную</summary>
+            <form className="aa-code" onSubmit={(e) => { e.preventDefault(); void sendCode(); }}>
+              <input className="mono" value={code} onChange={(e) => setCode(e.target.value)} placeholder="код со страницы Anthropic" aria-label="Код входа" spellCheck={false} autoComplete="off" />
+              <button className="btn primary" type="submit" disabled={!code.trim() || !loginId || state === 'verifying'}>Войти</button>
+            </form>
+            {codeErr && <div className="err-text">{codeErr}</div>}
+          </details>
+        </div>
+        <div className="aa-status" role="status">
+          <span className={`dot ${state === 'failed' ? 'dot-red' : 'dot-acc'}`} />
+          <span>
+            {state === 'waiting' && 'Ждём входа в браузере — завершится сам'}
+            {state === 'verifying' && 'Проверяем вход…'}
+            {state === 'failed' && (startErr || ev?.error || 'вход не удался')}
+            {state === 'cancelled' && 'Вход прерван'}
+          </span>
+          <span className="spacer" />
+          {(state === 'failed' || state === 'cancelled') && <button className="btn sm" onClick={() => setAttempt((a) => a + 1)}>Начать заново</button>}
         </div>
       </>
     );

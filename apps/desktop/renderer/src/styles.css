@@ -1505,3 +1505,7 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .nb-title { font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .nb-text { font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .nb-foot { display: flex; align-items: center; gap: 10px; font-size: var(--fs-sm); }
+
+/* «Этот компьютер» без рабочего аккаунта — войти одной кнопкой */
+.login-card { margin: 6px 10px 8px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); }
+.login-card .btn { align-self: flex-start; }

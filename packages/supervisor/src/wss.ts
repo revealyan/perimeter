@@ -854,8 +854,11 @@ export class WssServer {
           return name;
         };
         try {
-          const r = await this.logins.start({ configDir, fresh, width: f.width, height: f.height, onDone });
-          this.sendReply(ws, this.ack(f.id, r));
+          // свой компьютер: страницу входа открывает сам Claude Code в обычном браузере человека (там он обычно уже
+          // вошёл на claude.ai — останется «Разрешить»), ответ Claude Code принимает сам — без вкладки и кода
+          const ownBrowser = process.env['PERIMETER_LOCAL'] === '1';
+          const r = await this.logins.start({ configDir, fresh, width: f.width, height: f.height, onDone, ...(ownBrowser ? { ownBrowser: true } : {}) });
+          this.sendReply(ws, this.ack(f.id, { ...r, ...(ownBrowser ? { ownBrowser: true } : {}) }));
         } catch (err) {
           this.sendReply(ws, this.err(f.id, 'LOGIN_FAILED', `вход не начался: ${String((err as Error)?.message ?? err)}`));
         }

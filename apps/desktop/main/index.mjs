@@ -96,6 +96,7 @@ async function prepareLocal(onStatus) {
     cwd: repoRoot,
     env: {
       PERIMETER_STATE: join(repoRoot, '.local-state.json'),
+      PERIMETER_LOCAL: '1',
       // хранилище проектов этого компьютера: по умолчанию — папка рядом с репозиторием (у владельца это C:/devs/revealyan)
       PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? dirname(repoRoot),
     },

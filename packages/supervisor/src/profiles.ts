@@ -202,7 +202,15 @@ export class ProfileRegistry {
    * (свежий сервер, где работают через добавленные аккаунты) — иначе пустая карточка «По умолчанию» висит зря.
    * Пока вход не проверен — показываем; вошёл (claude auth login на сервере) — появится сам после проверки.
    */
+  /**
+   * Свой компьютер (локальный supervisor приложения): аккаунт по умолчанию — это Claude Code пользователя, его не
+   * прячем и не вошедшим — иначе «Этот компьютер» пуст и войти негде (владелец 2026-11-26: на маке вход Claude Code
+   * Desktop лежит отдельно — аккаунт не подтянулся).
+   */
+  keepBase = false;
+
   private hiddenBase(p: Profile): boolean {
+    if (this.keepBase) return false;
     return p.name === BASE_PROFILE && isBaseLike(p) && !usesKey(p) && this.auth.get(BASE_PROFILE)?.loggedIn === false;
   }
 

@@ -105,3 +105,16 @@ describe('applyProfile', () => {
     expect(applyProfile(undefined, { model: 'sonnet' })).toEqual({ model: 'sonnet' });
   });
 });
+
+describe('аккаунт по умолчанию, не вошедший', () => {
+  it('на сервере прячем (пустая карточка ни к чему); на своём компьютере — показываем: это Claude Code пользователя, войти надо здесь', () => {
+    const server = new ProfileRegistry([]);
+    server.setAuth('default', { loggedIn: false });
+    expect(server.publicList().map((p) => p.name)).toEqual([]);
+    const local = new ProfileRegistry([]);
+    local.keepBase = true;
+    local.setAuth('default', { loggedIn: false });
+    expect(local.publicList().map((p) => p.name)).toEqual(['default']);
+    expect(local.info('default')?.auth).toEqual({ loggedIn: false });
+  });
+});

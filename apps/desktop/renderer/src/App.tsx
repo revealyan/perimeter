@@ -30,6 +30,7 @@ import { FOREIGN_SCAN_MS, loadSeen, newForeign, saveSeen } from './lib/foreignSc
 import { notifications } from './notifications';
 import { useUpdate } from './lib/useUpdate';
 import { SessionSearch } from './components/SessionSearch';
+import { AddAccountDialog } from './components/AddAccountDialog';
 
 const PANEL_KEY = 'perimeter:panel';
 
@@ -314,6 +315,8 @@ export default function App() {
   // автообновление supervisor'а на серверах (main): ход — тостом; готово/не вышло — само скрывается через 12 с
   // поиск сессий (Ctrl+K); foreign — открыть сразу «вне Perimeter» (из уведомления фонового поиска)
   const [search, setSearch] = useState<false | { foreign: boolean }>(false);
+  // вход в аккаунт прямо из сайдбара (свой компьютер без рабочего аккаунта)
+  const [loginFor, setLoginFor] = useState<{ env: EnvId; profile: string } | null>(null);
 
   useEffect(() => window.perimeterIPC?.onServerUpdate?.((e) => {
     notifications.push({ level: e.state === 'failed' ? 'err' : e.state === 'done' ? 'ok' : 'info', key: `srvupd:${e.connId}`, title: serverUpdateText(e, envLabel(e.connId)) });
@@ -357,6 +360,7 @@ export default function App() {
           onSync={setSyncEnv}
           onTransfer={(env, sid) => setTransfer({ env, sid })}
           onSearchAll={() => setSearch({ foreign: false })}
+          onLogin={(env, profile) => setLoginFor({ env, profile })}
         />
       )}
       {syncEnv && <SyncDialog client={clients.get(syncEnv)} onClose={() => setSyncEnv(null)} />}
@@ -396,6 +400,11 @@ export default function App() {
           }}
         />
       )}
+      {loginFor && (() => {
+        const c = clients.get(loginFor.env);
+        const p = c.profiles.find((x) => x.name === loginFor.profile);
+        return p ? <AddAccountDialog client={c} env={loginFor.env} loginProfile={p} onClose={() => setLoginFor(null)} /> : null;
+      })()}
       {search !== false && <SessionSearch clients={clients} envs={enabled} foreignFirst={search.foreign} onOpen={(env, sid) => selectSession(env, sid)} onClose={() => setSearch(false)} />}
       {showSettings !== false && <SettingsDialog clients={clients} {...(typeof showSettings === 'string' ? { initial: showSettings } : {})} composerStyle={composerStyle} onComposerStyle={setComposerStyle} onClose={() => setShowSettings(false)} />}
       <div className={`work ${panel.open && !full && panel.dock !== 'floating' ? `with-${panel.dock}` : ''}`} ref={workRef}>

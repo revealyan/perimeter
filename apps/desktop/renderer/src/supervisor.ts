@@ -1283,9 +1283,10 @@ export class SupervisorClient {
   }
 
   /** Начать вход в подписку Claude на сервере (новый аккаунт или существующий profile). Ссылка ждётся до 30 с. */
-  async loginStart(o: { profile?: string; name?: string; displayName?: string; width: number; height: number }): Promise<{ loginId: string; rbId?: string; url?: string }> {
+  /** ownBrowser — свой компьютер: страницу входа Claude Code открыл в обычном браузере, вход завершится сам. */
+  async loginStart(o: { profile?: string; name?: string; displayName?: string; width: number; height: number }): Promise<{ loginId: string; rbId?: string; url?: string; ownBrowser?: boolean }> {
     const r = await this.request({ type: 'cmd:profile.login.start', ...o }, 60_000);
-    return r.data as { loginId: string; rbId?: string; url?: string };
+    return r.data as { loginId: string; rbId?: string; url?: string; ownBrowser?: boolean };
   }
 
   /** Выпустить токен подписки (`claude setup-token`) на машине этого supervisor'а — у локального вход в браузере владельца. */

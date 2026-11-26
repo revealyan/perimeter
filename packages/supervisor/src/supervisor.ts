@@ -70,6 +70,8 @@ export async function startSupervisor(opts: SupervisorOptions): Promise<{ manage
   };
   const profilesFile = opts.profilesFile ?? join(homedir(), '.perimeter', 'profiles.json');
   const profiles = ProfileRegistry.load(profilesFile);
+  // свой компьютер (приложение запускает с PERIMETER_LOCAL=1): аккаунт по умолчанию — Claude Code пользователя, не прячем
+  if (process.env['PERIMETER_LOCAL'] === '1') profiles.keepBase = true;
   const projects = new ProjectStore(opts.projectsFile ?? join(homedir(), '.perimeter', 'projects.json'));
 
   // параметры субпроцесса: сессионные настройки поверх профиля аккаунта (мультиакк)

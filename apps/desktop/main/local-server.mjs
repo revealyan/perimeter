@@ -207,6 +207,8 @@ export function localSupervisorEnv({ app, installDir }) {
     // хранилище проектов этого компьютера: рядом с домом (в dev это был родитель репозитория)
     PERIMETER_PROJECTS_ROOT: process.env.PERIMETER_PROJECTS_ROOT ?? join(homedir(), 'perimeter-projects'),
     PERIMETER_LOCAL_BUNDLE: installDir,
+    // свой компьютер: аккаунт по умолчанию не прячем, вход — в обычном браузере (supervisor: profiles.keepBase, login)
+    PERIMETER_LOCAL: '1',
     ...(existsSync(cli) ? { PERIMETER_CLI_PATH: cli } : {}),
   };
 }

@@ -330,7 +330,8 @@ function demoPng(): string {
 // ─── сборка: профили, проекты, стартовые сессии ─────────────────────────────
 
 const profilesFile = join(root, 'profiles.json');
-writeFileSync(profilesFile, JSON.stringify({ version: 1, profiles: [
+// DEMO_LOGGED_OUT=1 — только аккаунт по умолчанию, не вошедший (свой компьютер, где есть лишь Claude Code Desktop)
+writeFileSync(profilesFile, JSON.stringify({ version: 1, profiles: process.env['DEMO_LOGGED_OUT'] === '1' ? [] : [
   { name: 'yan', displayName: 'Claude · подписка', description: 'claude.ai', model: 'sonnet', defaultEffort: 'high', delegate: true },
   // шлюз z.ai: список моделей у провайдера (подделка ниже), 1M у GLM 5.3, усилия у GLM нет, ultracode выключен
   {
@@ -341,6 +342,13 @@ writeFileSync(profilesFile, JSON.stringify({ version: 1, profiles: [
   },
 ] }));
 const profiles = ProfileRegistry.load(profilesFile);
+// DEMO_LOGGED_OUT=1 — свой компьютер, где Claude Code не вошёл (как на маке с одним Claude Code Desktop):
+// аккаунт по умолчанию виден «не вошёл», в сайдбаре — «Войти через claude.ai»
+const demoLoggedOut = process.env['DEMO_LOGGED_OUT'] === '1';
+if (demoLoggedOut) {
+  profiles.keepBase = true;
+  for (const p of [...profiles.list().map((x) => x.name), 'default']) profiles.setAuth(p, { loggedIn: false });
+}
 // MCP-серверы стенда (в памяти, см. accounts.mcpRun ниже)
 const demoMcp = new Map<string, Record<string, unknown>>([
   ['context7', { type: 'http', url: 'https://mcp.context7.com/mcp' }],
@@ -456,7 +464,7 @@ const server = new WssServer(manager, {
 });
 const actualPort = await server.start();
 void server.refreshStaleModels();
-void server.refreshAuth();
+if (!demoLoggedOut) void server.refreshAuth();
 
 const mk = (name: string, opts: { cwd: string; profile?: string; projectId?: string; model?: string; permissionMode?: string }) => {
   const id = randomUUID();
