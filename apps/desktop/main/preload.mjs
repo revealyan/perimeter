@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('perimeterIPC', {
   },
   /** настройки приложения (автообновление supervisor'а на серверах) */
   appSettings() { return ipcRenderer.invoke('perimeter:app-settings'); },
+  clipboardImage() { return ipcRenderer.invoke('perimeter:clipboard-image'); },
   setAppSettings(patch) { return ipcRenderer.invoke('perimeter:set-app-settings', patch); },
   /** ход автообновления supervisor'а на сервере: waiting | updating | done | failed */
   onServerUpdate(cb) {

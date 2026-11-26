@@ -113,6 +113,8 @@ const PLAN_ICON: Record<string, IconName> = { completed: 'check', in_progress: '
 
 export function TasksTab({ session, client, plan, onReveal }: { session: SessionView; client: SupervisorClient; plan: Plan | null; onReveal: (itemId: string) => void }) {
   const [showDone, setShowDone] = useState(false);
+  // задача «в работе» крутится, только пока идёт ход (как полоска над полем ввода)
+  const turnRunning = session.state === 'working';
   const running = runningCommands(session.items);
   const now = useNow(running.length > 0);
   return (
@@ -128,12 +130,12 @@ export function TasksTab({ session, client, plan, onReveal }: { session: Session
         {plan ? (
           <>
             <div className="plan-bar" aria-hidden>{plan.items.map((t, i) => <span key={i} className={`pb-${t.status}`} />)}</div>
-            <ul className="plan">
+            <ul className={`plan ${turnRunning ? '' : 'paused'}`}>
               {/* в работе и несделанные — сверху; выполненные — свёрнуты (список не «жиреет») */}
               {[...plan.items.filter((t) => t.status === 'in_progress'), ...plan.items.filter((t) => t.status === 'pending')].map((t, i) => (
                 <li key={`o${i}`} className={`plan-${t.status}`}>
                   <Icon name={PLAN_ICON[t.status] ?? 'circleDashed'} size={14} />
-                  <span>{t.status === 'in_progress' && t.active ? t.active : t.text}</span>
+                  <span>{t.status === 'in_progress' && turnRunning && t.active ? t.active : t.text}</span>
                 </li>
               ))}
               {plan.done > 0 && (

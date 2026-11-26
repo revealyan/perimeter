@@ -45,6 +45,22 @@ describe('engine+manager: маппинг SDK → протокол', () => {
     await m.stop(id);
   });
 
+  it('пустая картинка (data URL без данных) не уходит в Claude Code; есть данные — блок image, пусто всё — просто текст', async () => {
+    const { m, fake, factory } = managerWith(async function* () {
+      yield { type: 'system', subtype: 'init', tools: [], mcp_servers: [], model: 'm', permissionMode: 'default' };
+      await sleep(300);
+    });
+    const id = m.create({ factory });
+    await sleep(30);
+    m.send(id, 'смотри', ['data:image/png;base64,', 'data:image/png;base64,iVBORw0KGgo=']);
+    m.send(id, 'только пустая', ['data:image/png;base64,']);
+    await sleep(30);
+    const [a, b] = fake.received.slice(-2);
+    expect(a!.message.content).toEqual([{ type: 'text', text: 'смотри' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }]);
+    expect(b!.message.content).toBe('только пустая');
+    await m.stop(id);
+  });
+
   it('thinking: текст с подписью уходит в журнал (транскрипт его не хранит); пустой — добирается из дельт потока', async () => {
     const { m, events, factory } = managerWith(async function* () {
       yield { type: 'system', subtype: 'init', tools: [], mcp_servers: [], model: 'claude-opus-5-5', permissionMode: 'default' };

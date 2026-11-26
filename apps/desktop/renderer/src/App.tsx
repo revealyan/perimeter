@@ -401,7 +401,7 @@ export default function App() {
             : active
             ? <>
                 <Feed session={active} client={client} onOpenChange={openChange} onOpenSession={(id) => selectSession(activeEnv, id)} />
-                {showTaskStrip(activePlan) && <TaskStrip key={`tasks:${activeEnv}:${active.id}`} plan={activePlan} onReveal={reveal} />}
+                {showTaskStrip(activePlan) && <TaskStrip key={`tasks:${activeEnv}:${active.id}`} plan={activePlan} running={active.state === 'working'} onReveal={reveal} />}
                 <Composer
                   key={`${activeEnv}:${active.id}`}
                   variant={composerStyle}

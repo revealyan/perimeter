@@ -1,6 +1,6 @@
 // Electron-оболочка: окно + подключения VPS (у каждого свой встроенный SSH-туннель) + локальный supervisor.
 // Логика — в рендерере (React); supervisor-соединение рендерер тянет сам на 127.0.0.1:<localPort подключения>.
-import { app, BrowserWindow, Notification, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, Notification, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -235,6 +235,12 @@ const appSettingsFile = join(app.getPath('userData'), 'app-settings.json');
 let appSettings = { autoServerUpdate: true };
 try { appSettings = { ...appSettings, ...JSON.parse(readFileSync(appSettingsFile, 'utf8')) }; } catch { /* нет файла — умолчания */ }
 ipcMain.handle('perimeter:app-settings', () => appSettings);
+// Картинка из буфера обмена напрямую из ОС: вставка в окне иногда даёт файл 0 байт (Windows отдаёт отложенный
+// файл — мессенджеры, проводник), а битмап в буфере есть; null — картинки в буфере нет.
+ipcMain.handle('perimeter:clipboard-image', () => {
+  const img = clipboard.readImage();
+  return img.isEmpty() ? null : img.toDataURL();
+});
 ipcMain.handle('perimeter:set-app-settings', (_e, patch) => {
   if (patch && typeof patch.autoServerUpdate === 'boolean') appSettings.autoServerUpdate = patch.autoServerUpdate;
   try { writeFileSync(appSettingsFile, JSON.stringify(appSettings, null, 2)); } catch { /* профиль недоступен — до перезапуска */ }

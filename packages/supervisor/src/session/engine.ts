@@ -105,8 +105,11 @@ export class SessionEngine {
   }
 
   /** Отправка сообщения пользователя (стриминговый вход — работает и среди хода). */
-  send(text: string, images?: string[]): void {
+  send(text: string, imagesIn?: string[]): void {
     if (!this.queue) throw new Error('движок не запущен');
+    // пустую картинку (data URL без данных — вставка файла 0 байт) не шлём: Claude Code заменит её на
+    // «Image file is empty», а клиент старой версии такую ещё может прислать
+    const images = imagesIn?.filter((d) => d.replace(/^data:[^,]*,/, '').trim() !== '');
     const content: SdkUserInput['message']['content'] = images && images.length
       ? [
           { type: 'text', text },

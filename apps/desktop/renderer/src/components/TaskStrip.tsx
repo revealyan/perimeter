@@ -10,7 +10,12 @@ const ICON: Record<string, IconName> = { completed: 'check', in_progress: 'loade
 /** Показывать ли полоску: есть план и в нём осталось несделанное. */
 export const showTaskStrip = (plan: Plan | null): plan is Plan => plan !== null && plan.done < plan.total;
 
-export function TaskStrip({ plan, onReveal }: { plan: Plan; onReveal: (itemId: string) => void }) {
+/**
+ * running — у сессии идёт ход: только тогда задача «в работе» крутится и подписана «что делается» (activeForm).
+ * Между ходами (агент ждёт тебя, ход кончился, сессия спит) — статичный значок и обычное название: иначе кажется,
+ * что агент завис (владелец 2026-11-26: «задачи зависли, крутятся, а ничего не делается»).
+ */
+export function TaskStrip({ plan, running, onReveal }: { plan: Plan; running: boolean; onReveal: (itemId: string) => void }) {
   const [open, setOpen] = useState(false);
   const v = compactPlan(plan);
   const shown = open ? plan.items : v.top;
@@ -24,12 +29,12 @@ export function TaskStrip({ plan, onReveal }: { plan: Plan; onReveal: (itemId: s
         <span className="dim task-strip-toggle">{open ? 'свернуть' : 'развернуть'}</span>
         <Icon name={open ? 'chevronDown' : 'chevronUp'} size={14} className="dim" />
       </button>
-      <ul className="plan task-strip-list">
+      <ul className={`plan task-strip-list ${running ? '' : 'paused'}`}>
         {!open && v.done > 0 && <li className="plan-completed task-strip-done"><Icon name="check" size={14} /><span>выполнено: {v.done}</span></li>}
         {shown.map((t, i) => (
           <li key={i} className={`plan-${t.status}`}>
-            <Icon name={ICON[t.status] ?? 'circleDashed'} size={14} className={t.status === 'in_progress' ? 'spin' : undefined} />
-            <span>{t.status === 'in_progress' && t.active ? t.active : t.text}</span>
+            <Icon name={ICON[t.status] ?? 'circleDashed'} size={14} className={t.status === 'in_progress' && running ? 'spin' : undefined} />
+            <span>{t.status === 'in_progress' && running && t.active ? t.active : t.text}</span>
           </li>
         ))}
         {!open && v.morePending > 0 && (

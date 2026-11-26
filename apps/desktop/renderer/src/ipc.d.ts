@@ -77,6 +77,8 @@ declare global {
       /** пробное ssh-подключение и проверка, что на VPS слушает supervisor; ничего не сохраняет */
       testConnection?(c: PerimeterConnInput): Promise<{ ok: boolean; message: string }>;
       appSettings?(): Promise<{ autoServerUpdate: boolean }>;
+      /** картинка из буфера обмена ОС (data URL PNG); null — картинки нет */
+      clipboardImage?(): Promise<string | null>;
       setAppSettings?(patch: { autoServerUpdate?: boolean }): Promise<{ autoServerUpdate: boolean }>;
       onServerUpdate?(cb: (e: { connId: string; state: 'waiting' | 'updating' | 'done' | 'failed'; message?: string; version?: string }) => void): () => void;
       /** обновление приложения (electron-updater): состояние для окна */

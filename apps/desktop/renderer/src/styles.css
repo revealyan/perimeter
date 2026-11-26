@@ -745,6 +745,8 @@ kbd { font: 500 var(--fs-xs)/1 var(--mono); color: var(--fg-2); }
 .plan-completed .icon { color: var(--ok); }
 .plan-completed span { color: var(--fg-2); }
 .plan-in_progress .icon { color: var(--warn); animation: spin 1.6s linear infinite; }
+/* между ходами задача «в работе» не крутится — агент не делает её прямо сейчас */
+.plan.paused .plan-in_progress .icon { animation: none; }
 .run-cmd { display: flex; flex-direction: column; gap: 6px; background: var(--surface); border-radius: 8px; padding: 10px 12px; }
 .run-cmd-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .run-cmd-head > .icon { align-self: center; color: var(--dim); }

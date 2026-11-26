@@ -10,6 +10,7 @@ import {
 import { Icon } from './Icon';
 import { afterPaint, onComposerInsert } from '../composeBus';
 import { insertAt } from '../lib/fileTree';
+import { hasImageData, splitImageFiles } from '../lib/pasteImages';
 import {
   COMPOSER_HEIGHT_KEY, PANEL_HEIGHT, clampPanelHeight, enterAction, loadDraft, parsePanelHeight, saveDraft, type ComposerStyle,
 } from '../lib/composerModel';
@@ -130,27 +131,40 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, hold,
   };
 
   // ─── картинки ─────────────────────────────────────────────────────────────
+  // пустую картинку не прикрепляем — иначе агенту уходит «Image file is empty (0 bytes)», в ленте битое вложение
+  const [imgNote, setImgNote] = useState<string | null>(null);
+  const pushImage = (name: string, dataUrl: string) => {
+    if (!hasImageData(dataUrl)) { setImgNote('картинка пустая — не прикрепил'); return; }
+    setImgNote(null);
+    setImages((prev) => [...prev, { name, dataUrl }]);
+  };
   const addFiles = (files: FileList | File[] | null) => {
     if (!files) return;
-    const imgs = [...files].filter((f) => f.type.startsWith('image/'));
-    for (const f of imgs) {
+    const list = [...files];
+    const { ok, empty } = splitImageFiles(list);
+    for (const i of ok) {
+      const f = list[i]!;
       const reader = new FileReader();
-      reader.onload = () => {
-        setImages((prev) => [...prev, { name: f.name, dataUrl: String(reader.result) }]);
-      };
+      reader.onload = () => pushImage(f.name, String(reader.result));
       reader.readAsDataURL(f);
     }
+    if (ok.length === 0 && empty > 0) setImgNote('картинка пустая (0 байт) — не прикрепил');
   };
 
   const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = e.clipboardData?.files;
-    if (files && files.length > 0) {
-      const imgs = [...files].filter((f) => f.type.startsWith('image/'));
-      if (imgs.length > 0) {
-        e.preventDefault();
-        addFiles(imgs);
-      }
-    }
+    if (!files || files.length === 0) return;
+    const list = [...files];
+    const { ok, empty } = splitImageFiles(list);
+    if (ok.length === 0 && empty === 0) return;
+    e.preventDefault();
+    if (ok.length > 0) { addFiles(ok.map((i) => list[i]!)); return; }
+    // Windows отдал отложенный файл 0 байт (мессенджер, проводник) — берём битмап из буфера ОС напрямую
+    void (async () => {
+      const url = await window.perimeterIPC?.clipboardImage?.().catch(() => null);
+      if (url && hasImageData(url)) pushImage('вставка.png', url);
+      else setImgNote('картинка из буфера пустая — не прикрепил. Сохраните её файлом и перетащите сюда');
+    })();
   };
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -168,6 +182,7 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, hold,
       textRef.current = ''; // поле могли уже закрыть (новая сессия создана) — при закрытии черновик не должен вернуться
       setText('');
       setImages([]);
+      setImgNote(null);
       saveDraft(localStorage, draftKey, '');
       setSavedAt(null);
     };
@@ -217,6 +232,7 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, hold,
     </>
   );
   const stopBtn = busy && <button className="btn stop sm" onClick={onStop} data-tip="Остановить ход" data-key="Esc"><Icon name="stop" size={14} /> Стоп</button>;
+  const imgNoteEl = imgNote && <div className="composer-hint">{imgNote}</div>;
   const chips = images.length > 0 && (
     <div className="img-chips">
       {images.map((img, i) => (
@@ -275,6 +291,7 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, hold,
             {savedAt !== null && text.trim() !== '' && <span className="composer-saved"><Icon name="check" size={12} /> черновик сохранён</span>}
           </div>
           {hint && <div className="composer-hint">{hint}</div>}
+          {imgNoteEl}
           {chips}
           {area}
           <div className="composer-bar">
@@ -297,6 +314,7 @@ export function Composer({ variant, draftKey, tools, disabled, busy, hint, hold,
     <div className="composer-wrap is-card">
       <div className={`composer is-card ${dragOver ? 'dragover' : ''}`} {...dropProps} onClick={focusArea}>
         {hint && <div className="composer-hint">{hint}</div>}
+        {imgNoteEl}
         {chips}
         {area}
         <div className="composer-bar">
